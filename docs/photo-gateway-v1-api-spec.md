@@ -431,7 +431,37 @@ xiaomi14-abc123
 ```
 
 ---
+# 14. 文件上传的流程如下
+```text
+创建 Session
+    ↓
+批量 Precheck
+    ↓
+NO_MATCH ───────────────┐
+                        ↓
+POSSIBLE_DUPLICATE       上传
+    ↓
+user_confirmation
+    ├── 0 → 等待
+    ├── 1 → 上传
+    └── 2 → 跳过
+                        ↓
+              所有 Item 前置条件完成
+                        ↓
+                     complete
+                        ↓
+                   PROCESSING
+                        ↓
+       ┌────────────────┼────────────────┐
+       ↓                ↓                ↓
+   全部成功/重复/跳过   部分 FAILED      全部 FAILED
+       ↓                ↓                ↓
+   COMPLETED          PARTIAL           FAILED
+```
 
+
+
+---
 # 14. 创建上传 Session
 
 ```http
@@ -867,7 +897,7 @@ GET /api/v1/upload-sessions/{session_id}/duplicates
         "filename": "IMG_002.jpg",
         "file_size": 23456789,
         "precheck_status": "POSSIBLE_DUPLICATE",
-        "reupload_confirmed": false
+        "user_confirmation": 0
       }
     ],
     "total": 900
@@ -897,7 +927,7 @@ GET /api/v1/upload-items/{item_id}
       "file_size": 23456789,
       "status": "PRECHECK",
       "precheck_status": "POSSIBLE_DUPLICATE",
-      "reupload_confirmed": false,
+      "user_confirmation": 0,
       "asset_id": null,
       "error_code": null,
       "error_message": null
@@ -1009,26 +1039,19 @@ file = IMG_001.jpg
 
 ```text
 precheck_status = NO_MATCH
-```
+    → 允许上传
 
-或者：
+precheck_status = POSSIBLE_DUPLICATE
+    AND user_confirmation = 1
+    → 允许上传
 
-```text
-reupload_confirmed = true
-```
+precheck_status = POSSIBLE_DUPLICATE
+    AND user_confirmation = 0
+    → REUPLOAD_CONFIRMATION_REQUIRED
 
-以下情况拒绝：
-
-```text
-POSSIBLE_DUPLICATE
-+
-reupload_confirmed = false
-```
-
-错误：
-
-```text
-REUPLOAD_CONFIRMATION_REQUIRED
+precheck_status = POSSIBLE_DUPLICATE
+    AND user_confirmation = 2
+    → 不上传
 ```
 
 ---
@@ -1337,36 +1360,16 @@ POST /api/v1/upload-sessions/{session_id}/complete
 {}
 ```
 
-服务器检查：
-
-```text
-所有需要上传的文件
-```
-
-是否已经：
-
-```text
-UPLOADED
-```
-
-或者：
-
-```text
-POSSIBLE_DUPLICATE
-```
-
-且未确认重新上传。
-
-complete 只负责结束“客户端上传阶段”，不负责决定最终 Session 结果。
+complete 只负责通知服务器，“客户端上传阶段”已经结束，不负责决定最终 Session 结果。
 ```
 complete：
     ├── 尚有 PRECHECK / UPLOADING → 拒绝
-    ├── 尚有未决 POSSIBLE_DUPLICATE → 拒绝
+    ├── 尚有未决 POSSIBLE_DUPLICATE + user_confirmation=0 → 拒绝
     └── 其他情况 → 进入 PROCESSING
 
 Worker 完成所有可处理 Item 后：
 
-    全部 COMPLETED / DUPLICATE / USER_SKIPPED
+    全部 COMPLETED / DUPLICATE / POSSIBLE_DUPLICATE + user_confirmation=2 = SKIPPED
         → COMPLETED
 
 存在 FAILED 且存在成功/重复/跳过
@@ -1428,40 +1431,6 @@ WebUI 必须允许查看：
 
 ```text
 Retry
-```
-
----
-
-# 44. Session 完成后的重复提示
-
-如果：
-
-```text
-POSSIBLE_DUPLICATE = 900
-```
-
-WebUI 应显示：
-
-```text
-本次上传发现 900 个疑似已经上传过的文件。
-```
-
-用户可以：
-
-```text
-查看
-```
-
-并选择：
-
-```text
-全部重新上传
-```
-
-或：
-
-```text
-选择部分重新上传
 ```
 
 ---
@@ -1884,7 +1853,7 @@ IMG_002.jpg
 服务器：
 
 ```text
-reupload_confirmed = 1
+user_confirmation = 1
 ```
 
 客户端：

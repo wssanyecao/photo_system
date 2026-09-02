@@ -1191,7 +1191,7 @@ incoming/
 数据库记录：
 
 ```text
-reupload_requested = true
+user_confirmation = 1
 ```
 
 ---

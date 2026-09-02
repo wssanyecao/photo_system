@@ -158,6 +158,7 @@ auth:
   enabled: true
   username: admin
   password_hash: "$..."
+  session_ttl_hours: 24
 
 devices:
   - id: xiaomi13ultra

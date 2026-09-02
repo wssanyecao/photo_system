@@ -1596,7 +1596,14 @@ FAILED
 NOT_CHECKED
 NO_MATCH
 POSSIBLE_DUPLICATE
-USER_CONFIRMED
+```
+当 precheck 状态为 POSSIBLE_DUPLICATE 时：
+```text
+user_confirmation：
+
+0 = 未确认
+1 = 确认重新上传
+2 = 确认跳过
 ```
 
 ---
@@ -1624,12 +1631,18 @@ PRECHECK
    │ COMPLETED   DUPLICATE
    │
    └── POSSIBLE_DUPLICATE
-              │
-              ▼
-        用户确认重新上传
-              │
-              ▼
-           UPLOADING
+        │
+        ├── confirmation = 0
+        │       ↓
+        │    等待用户决定
+        │
+        ├── confirmation = 1
+        │       ↓
+        │    UPLOADING
+        │
+        └── confirmation = 2
+                ↓
+              已跳过
 ```
 
 任意处理阶段可能：
