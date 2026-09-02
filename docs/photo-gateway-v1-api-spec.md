@@ -1384,6 +1384,10 @@ POST /api/v1/upload-sessions/{session_id}/complete
 }
 ```
 
+> 错误码 code 可以是：
+> - `REUPLOAD_CONFIRMATION_REQUIRED`：表示还有疑似重复文件没有完成用户决策。前端可以显示为”还有 20 个疑似重复文件需要选择“重新上传”或“跳过”。“
+> - `UPLOAD_UNCOMPLETED`：表示还有文件没有完成客户端上传。前端显示为”尚有文件未上传完成，请等待上传完成。“
+
 complete 只负责通知服务器，“客户端上传阶段”已经结束，不负责决定最终 Session 结果。
 ```
 complete：
@@ -1401,6 +1405,27 @@ Worker 完成所有可处理 Item 后：
 
 全部 FAILED
         → FAILED
+```
+
+complete 当多次重复调用时，接口要保持幂等性。
+```text
+Session = UPLOADED
+    → complete
+    → PROCESSING
+
+Session = PROCESSING
+    → 再次 complete
+    → 返回当前 PROCESSING
+    → 不重复触发 Worker
+
+Session = COMPLETED / PARTIAL / FAILED
+    → 再次 complete
+    → 返回当前最终状态
+    → 不重复执行
+
+Session = CANCELLED
+    → complete
+    → SESSION_CANCELLED
 ```
 
 ---

@@ -2841,7 +2841,6 @@ CREATE TABLE schema_version (
 CREATE TABLE devices (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
-    type        TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL

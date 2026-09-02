@@ -120,6 +120,40 @@ WebUI 不允许用户自由输入设备名称。
 
 ---
 
+# 5. 登录
+用户使用前必须登录
+```text
+/login
+用户名
+密码
+登录
+登出
+```
+
+登录逻辑示例
+```text
+/login
+
+输入：
+- username
+- password
+
+登录：
+POST /api/v1/auth/login
+
+成功：
+- 保存 Session Token
+- 跳转 /
+
+失败：
+- 显示 AUTH_FAILED
+
+退出：
+POST /api/v1/auth/logout
+- 清除本地 Token
+- 返回 /login
+```
+
 # 5. 首页
 
 URL：
@@ -782,23 +816,32 @@ Worker 并发 = 1
 当所有文件成功传输到：
 
 ```text
-incoming/
-```
+当所有“需要实际上传”的文件均已完成上传，
+并且所有 POSSIBLE_DUPLICATE 均已完成用户决策：
 
-之后程序自动调用API：
-```
+    confirmation = 1
+    或
+    confirmation = 2
+
+之后，WebUI 调用：
+
 POST /api/v1/upload-sessions/{session_id}/complete
+
+complete 成功：
+    Session → PROCESSING
+
+complete 失败：
+    根据 error.code 展示具体原因，
+    不得将 Session 误显示为“处理完成”。
 ```
 
-WebUI 根据接口返回结果，显示：
 
-```text
-上传完成  or  请检查上传状态
-```
 
-但：
-
-> 上传完成不等于照片最终处理完成。
+> complete 不是由“最后一个文件上传完成”这一事件单独决定。
+> complete 的调用条件必须同时满足：
+> 1. 不存在 PRECHECK
+> 2. 不存在 UPLOADING
+> 3. 不存在 POSSIBLE_DUPLICATE + user_confirmation=0
 
 ---
 
@@ -1933,39 +1976,46 @@ EXIF 解析
 选择设备
        │
        ▼
-选择 1000 张照片
+选择照片
        │
        ▼
 创建 Session
        │
        ▼
-Precheck 1000 张
+Batch Precheck
        │
        ├──────────────┐
        ▼              ▼
-  NO_MATCH       POSSIBLE_DUPLICATE
+   NO_MATCH       POSSIBLE_DUPLICATE
        │              │
-       ▼              ▼
-  直接上传       显示疑似重复
-       │              │
-       │        用户选择重新上传
+       │              ▼
+       │        用户确认：
+       │        ├── confirmation=1
+       │        └── confirmation=2
        │              │
        └───────┬──────┘
                ▼
           实际文件上传
                │
                ▼
-           incoming
+            incoming
+               │
+               ▼
+     所有上传文件处理完成
+     且所有重复项已决策
+               │
+               ▼
+POST /api/v1/upload-sessions/{session_id}/complete
+               │
+               ▼
+          PROCESSING
                │
                ▼
              Worker
                │
-        ┌──────┴──────┐
-        ▼             ▼
-    COMPLETED      DUPLICATE
-        │
-        ▼
-      照片库
+       ┌───────┼────────┐
+       ▼       ▼        ▼
+   COMPLETED PARTIAL  FAILED
 ```
 
 ---
