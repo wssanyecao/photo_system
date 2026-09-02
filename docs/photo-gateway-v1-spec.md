@@ -1021,14 +1021,6 @@ status = PROCESSING
 
 这样可以在出现异常时重建处理过程。
 
-V1 不存在：
-
-```text
-SYNC_PENDING
-```
-
-等 NAS 同步状态。
-
 ---
 
 # 22. 重复预检
@@ -1407,30 +1399,6 @@ PROCESSING
    ├── DUPLICATE
    └── FAILED
 ```
-
-V1 已删除旧状态：
-
-```text
-NEW
-PRECHECK_DUPLICATE
-PENDING
-CANCELLED
-```
-
-特别注意：
-
-> `CANCELLED` 是 Session 状态，不是 Upload Item 状态。
-
-V1 不定义：
-
-```text
-SYNCED
-```
-
-因为：
-
-> V1 不存在 NAS 同步。
-
 ---
 
 # 34. 重启恢复
