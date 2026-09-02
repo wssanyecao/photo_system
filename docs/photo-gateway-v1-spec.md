@@ -1077,11 +1077,21 @@ IMG_001.jpg
 
 ```text
 POSSIBLE_DUPLICATE
+        │
+        ├── user_confirmation = 0
+        │       ↓
+        │    等待用户决定
+        │
+        ├── user_confirmation = 1
+        │       ↓
+        │    UPLOADING
+        │
+        └── user_confirmation = 2
+                ↓
+              跳过
 ```
 
-该文件：
-
-> 不上传到 R5S。
+POSSIBLE_DUPLICATE 是 Precheck 结果，不是最终处理结果；user_confirmation 是用户决策，不属于 Item 状态机。
 
 ---
 
@@ -1233,7 +1243,7 @@ IMG_001.jpg
 改为：
 
 ```text
-IMG_001__a83f91c2.jpg
+IMG_001_1.jpg
 ```
 
 数据库同时保存：
@@ -1243,6 +1253,15 @@ original_filename
 stored_filename
 sha256
 ```
+规则：
+1. 第一个文件保持原名。
+2. 同名且 SHA-256 相同 → DUPLICATE。
+3. 同名但 SHA-256 不同 → _1。
+4. _1 已存在 → _2。
+5. 依次递增。
+6. 永远禁止覆盖。
+7. original_filename 永远保存原始名称。
+8. current_filename 保存最终名称。
 
 ---
 

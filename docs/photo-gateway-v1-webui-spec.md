@@ -383,25 +383,7 @@ session_id
 
 # 15. Precheck 阶段
 
-WebUI 对文件执行 Precheck。
-
-可以逐条调用：
-
-```http
-POST /api/v1/upload-sessions/{session_id}/items
-```
-
-请求：
-
-```json
-{
-  "client_item_id": "uuid-1",
-  "filename": "IMG_001.jpg",
-  "file_size": 12345678
-}
-```
-
-也可以使用批量 Precheck：
+WebUI 对文件执行批量 Precheck。
 
 ```http
 POST /api/v1/upload-sessions/{session_id}/items/precheck
@@ -552,14 +534,14 @@ POSSIBLE_DUPLICATE
 调用：
 
 ```http
-POST /api/v1/upload-items/{item_id}/reupload
+POST /api/v1/upload-items/{item_id}/confirmation
 ```
 
 请求：
 
 ```json
 {
-  "confirmed": true
+  "confirmation": 1
 }
 ```
 
@@ -577,15 +559,63 @@ IMG_008.jpg
 IMG_021.jpg
 ```
 
-只确认这些文件。
-
-其余：
-
-```text
-POSSIBLE_DUPLICATE
+只确认这些文件执行上传，调用api接口:
+```http
+POST /api/v1/upload-items/{item_id}/confirmation
 ```
 
-保持不上传。
+请求：
+
+```json
+{
+  "confirmation": 1
+}
+```
+
+剩余文件不需要上传，调用api接口：
+```http
+POST /api/v1/upload-items/{item_id}/confirmation
+```
+
+请求：
+
+```json
+{
+  "confirmation": 2
+}
+```
+
+表示这些文件经用户确认后不重新上传。
+
+---
+
+# 22. 跳过
+
+用户可以勾选：
+
+```text
+IMG_001.jpg
+IMG_008.jpg
+IMG_021.jpg
+```
+
+只确认这些文件执行跳过，调用api接口:
+
+```http
+POST /api/v1/upload-items/{item_id}/confirmation
+```
+
+请求：
+
+```json
+{
+  "confirmation": 2
+}
+```
+
+> 注意：
+> - `confirmation=2` 的文件需记录到 skipped_files 中。
+> - 若在同一个 Session中 有 `precheck_status=POSSIBLE_DUPLICATE` 且 `confirmation=0` 的记录。则该 session 不允许结束 precheck阶段。
 
 ---
 

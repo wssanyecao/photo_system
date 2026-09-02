@@ -699,7 +699,7 @@ CREATE TABLE upload_items (
 
     precheck_status     TEXT NOT NULL DEFAULT 'NOT_CHECKED',
 
-    reupload_confirmed  INTEGER NOT NULL DEFAULT 0,
+    user_confirmation  INTEGER NOT NULL DEFAULT 0,
 
     asset_id            INTEGER,
 
@@ -950,7 +950,6 @@ file_size
 NOT_CHECKED
 NO_MATCH
 POSSIBLE_DUPLICATE
-USER_CONFIRMED
 ```
 
 ---
@@ -1077,50 +1076,12 @@ CANCELLED
 
 ---
 
-# 34. 为什么不使用 precheck_key
-
-不增加：
+# 35. user_confirmation
 
 ```text
-precheck_key
-```
-
-原因：
-
-```text
-source_device
-+
-original_filename
-+
-file_size
-```
-
-建立联合索引已经足够。
-
-自己拼接：
-
-```text
-xiaomi14|IMG_001.jpg|12345678
-```
-
-不会产生本质性的性能优势，反而：
-
-- 增加编码规则
-- 增加特殊字符处理
-- 降低可读性
-- 不利于后续按单独字段查询
-
-因此 V1 使用标准联合索引。
-
----
-
-# 35. reupload_confirmed
-
-SQLite Boolean：
-
-```text
-0 = false
-1 = true
+0 = 表示用户尚未对 `POSSBLE_DUPLICATE` 状态的文件进行确认
+1 = 表示用户确认重新上传
+2 = 表示用户确认放弃上传
 ```
 
 默认：
@@ -1138,6 +1099,8 @@ SQLite Boolean：
 ```text
 1
 ```
+
+> user_confirmation 仅用于 precheck_status = POSSIBLE_DUPLICATE 的 Item；NO_MATCH 不需要用户确认。
 
 ---
 
@@ -1189,7 +1152,7 @@ Session 完成后，WebUI 展示：
 确认后的文件设置：
 
 ```text
-reupload_confirmed = 1
+user_confirmation = 1
 ```
 
 然后才允许进入真正上传阶段。
@@ -1563,7 +1526,7 @@ JSON
   "GPSLongitude": 113.2644
 }
 ```
-
+> EXIF/Metadata 字段集合不固定；V1 必须保存实际能够可靠解析的元数据，`exif_json` 为扩展容器；归档所依赖的日期字段必须严格遵循 `date_priority`。
 ---
 
 # 52. EXIF 原始信息保护
@@ -1775,10 +1738,10 @@ status = UPLOADED
 
 ---
 
-## 57.3 类型二：archive/ 有文件但 DB 没有 asset
+## 57.3 类型二：archive_path/ 有文件但 DB 没有 asset
 
 ```text
-archive/ 有文件但 DB 没有 photo_asset
+archive_path/ 有文件但 DB 没有 photo_asset
         ↓
 计算 SHA256
         ↓
@@ -1792,16 +1755,16 @@ archive/ 有文件但 DB 没有 photo_asset
 即发现 orphan file 时：
 
 - 先计算文件 SHA-256
-- 若数据库已存在相同 SHA-256 的 `photo_asset`，将该文件视为重复，不重复入库
+- 若数据库已存在相同 SHA-256 的 `photo_asset`，将该文件视为重复，不重复入库，删除 orphan file，并记录到日志中
 - 若无法确定该文件归属（无对应 upload_item / 无法恢复），移动到 `failed/` 并记录事件
 
 ---
 
-## 57.4 类型三：DB 有 photo_asset 但 archive 文件不存在
+## 57.4 类型三：DB 有 photo_asset 但 archive_path 文件不存在
 
 ```text
 DB 有 photo_asset
-但 archive 文件不存在
+但 archive_path 文件不存在
         ↓
 标记系统异常
         ↓
@@ -1987,7 +1950,7 @@ UPLOAD_FAILED
 PROCESSING_STARTED
 SHA256_CALCULATED
 DUPLICATE_DETECTED
-REUPLOAD_CONFIRMED
+user_confirmation
 ARCHIVED
 PROCESSING_FAILED
 RECOVERED
@@ -2304,7 +2267,7 @@ POSSIBLE_DUPLICATE
 然后：
 
 ```text
-reupload_confirmed = 1
+user_confirmation = 1
 ```
 
 上传：
@@ -2960,7 +2923,7 @@ CREATE TABLE upload_items (
     status                TEXT NOT NULL,
 
     precheck_status       TEXT NOT NULL DEFAULT 'NOT_CHECKED',
-    reupload_confirmed    INTEGER NOT NULL DEFAULT 0,
+    user_confirmation    INTEGER NOT NULL DEFAULT 0,
 
     asset_id              INTEGER,
 

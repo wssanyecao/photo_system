@@ -258,6 +258,7 @@ HTTP：
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "AUTH_REQUIRED",
     "message": "authentication required"
@@ -279,6 +280,7 @@ HTTP：
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "FORBIDDEN",
     "message": "operation not permitted"
@@ -906,24 +908,24 @@ GET /api/v1/upload-items/{item_id}
 
 ---
 
-# 27. 确认重新上传
+# 27. 文件重新上传确认
 
 ```http
-POST /api/v1/upload-items/{item_id}/reupload
+POST /api/v1/upload-items/{item_id}/confirmation
 ```
 
 请求：
 
 ```json
 {
-  "confirmed": true
+  "confirmation": 1
 }
 ```
 
 服务器：
 
 ```text
-reupload_confirmed = 1
+confirmation = 1
 ```
 
 并允许客户端上传该文件。
@@ -935,7 +937,7 @@ reupload_confirmed = 1
   "success": true,
   "data": {
     "item_id": 1002,
-    "reupload_confirmed": true,
+    "user_confirmation": 1,
     "upload_required": true
   }
 }
@@ -943,27 +945,35 @@ reupload_confirmed = 1
 
 ---
 
-# 28. 取消重新上传
-
-```http
-POST /api/v1/upload-items/{item_id}/reupload
-```
 
 请求：
 
 ```json
 {
-  "confirmed": false
+  "confirmation": 2
 }
 ```
 
-保持：
+服务器：
 
 ```text
-reupload_confirmed = 0
+confirmation = 2
 ```
 
-该文件不会上传。
+响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "item_id": 1002,
+    "user_confirmation": 2,
+    "upload_required": false
+  }
+}
+```
+
+表示用户明确该文件不需要重新上传。
 
 ---
 
@@ -1347,6 +1357,25 @@ POSSIBLE_DUPLICATE
 
 且未确认重新上传。
 
+complete 只负责结束“客户端上传阶段”，不负责决定最终 Session 结果。
+```
+complete：
+    ├── 尚有 PRECHECK / UPLOADING → 拒绝
+    ├── 尚有未决 POSSIBLE_DUPLICATE → 拒绝
+    └── 其他情况 → 进入 PROCESSING
+
+Worker 完成所有可处理 Item 后：
+
+    全部 COMPLETED / DUPLICATE / USER_SKIPPED
+        → COMPLETED
+
+存在 FAILED 且存在成功/重复/跳过
+        → PARTIAL
+
+全部 FAILED
+        → FAILED
+```
+
 ---
 
 # 42. Complete 后状态
@@ -1475,6 +1504,13 @@ mime_type
 
 ```http
 GET /api/v1/photos?date_from=2026-01-01&date_to=2026-08-31
+GET /api/v1/photos?source_device=xiaomi14  # 表示曾经从 xiaomi14 上传过的照片资产
+```
+
+```
+source_device filter =
+存在至少一个 upload_item.source_device = 指定 device
+且 upload_item.asset_id = photo_asset.id
 ```
 
 ---
@@ -1554,7 +1590,7 @@ GET /api/v1/photos/{photo_id}/file
 服务器返回：
 
 ```http
-Content-Type: image/jpeg
+Content-Type: <photo_assets.mime_type>
 ```
 
 直接输出原始照片文件。
