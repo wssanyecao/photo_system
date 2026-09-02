@@ -383,7 +383,9 @@ session_id
 
 # 15. Precheck 阶段
 
-对于每个文件：
+WebUI 对文件执行 Precheck。
+
+可以逐条调用：
 
 ```http
 POST /api/v1/upload-sessions/{session_id}/items
@@ -393,8 +395,42 @@ POST /api/v1/upload-sessions/{session_id}/items
 
 ```json
 {
+  "client_item_id": "uuid-1",
   "filename": "IMG_001.jpg",
   "file_size": 12345678
+}
+```
+
+也可以使用批量 Precheck：
+
+```http
+POST /api/v1/upload-sessions/{session_id}/items/precheck
+```
+
+单批大小：
+
+```text
+upload.precheck.batch_size
+```
+
+默认 5。
+
+批量请求：
+
+```json
+{
+  "items": [
+    {
+      "client_item_id": "uuid-1",
+      "filename": "IMG_001.jpg",
+      "file_size": 12345678
+    },
+    {
+      "client_item_id": "uuid-2",
+      "filename": "IMG_002.jpg",
+      "file_size": 23456789
+    }
+  ]
 }
 ```
 
@@ -409,6 +445,8 @@ NO_MATCH
 ```text
 POSSIBLE_DUPLICATE
 ```
+
+`client_item_id` 保证批量 Precheck 可安全重试（幂等）。
 
 ---
 
@@ -943,6 +981,8 @@ error_code
 ```text
 error_message
 ```
+
+`error_code` 使用 API Spec 中的统一 Error Code Registry。
 
 例如：
 
@@ -1608,6 +1648,14 @@ WebUI：
 当前认证已失效，请重新认证。
 ```
 
+并引导用户跳转到登录页：
+
+```http
+POST /api/v1/auth/login
+```
+
+重新获取 Session Token。
+
 不应该不断自动重试。
 
 ---
@@ -1761,8 +1809,17 @@ DateTimeOriginal
 CreateDate
 ModifyDate
 file_mtime
+```
+
+不允许：
+
+```text
 upload_time
 ```
+
+作为日期来源展示。
+
+`upload_time` 已从 V1 中删除。
 
 ---
 

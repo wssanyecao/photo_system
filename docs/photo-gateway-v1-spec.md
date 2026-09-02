@@ -386,6 +386,7 @@ V1 所有部署环境和业务规则都通过配置文件控制。
 认证开关
 用户名
 密码 Hash
+Session 有效期
 ```
 
 ### 设备
@@ -401,6 +402,7 @@ V1 所有部署环境和业务规则都通过配置文件控制。
 ```text
 允许的扩展名
 上传并发
+Precheck 批量大小
 临时文件清理
 ```
 
@@ -550,13 +552,15 @@ id
 source_device
 ```
 
-之外，系统保存：
+之外，客户端请求中还可能携带：
 
 ```text
 user_agent
 ```
 
-用于诊断。
+V1 对 `user_agent` 的统一规则：
+
+> `user_agent` 仅记录到结构化日志，不进入业务数据库，不参与业务逻辑，也不参与去重判断。
 
 例如：
 
@@ -570,10 +574,6 @@ Mozilla/5.0 ...
 
 设备必须先在配置中注册。
 
-`user_agent`：
-
-> 不参与去重判断。
-
 ---
 
 # 13. 简单认证
@@ -586,8 +586,35 @@ V1 实现简单认证。
 auth:
   enabled: true
   username: admin
-  password_hash: "..."
+  password_hash: "$argon2id$..."
+  session_ttl_hours: 24
 ```
+
+认证职责链路固定为：
+
+```text
+config.yaml
+    ↓
+username + password_hash
+    ↓
+POST /api/v1/auth/login
+    ↓
+Session Token
+    ↓
+Authorization: Bearer <token>
+    ↓
+其他 API
+```
+
+V1 不引入用户表、不实现 RBAC、不实现复杂账户体系。
+
+认证具体契约以：
+
+```text
+photo-gateway-v1-api-spec.md
+```
+
+为准。
 
 V1 不实现：
 
@@ -980,7 +1007,7 @@ logging:
 例如数据库：
 
 ```text
-status = SYNC_PENDING
+status = PROCESSING
 ```
 
 而日志记录：
@@ -993,6 +1020,14 @@ status = SYNC_PENDING
 ```
 
 这样可以在出现异常时重建处理过程。
+
+V1 不存在：
+
+```text
+SYNC_PENDING
+```
+
+等 NAS 同步状态。
 
 ---
 
@@ -1049,7 +1084,7 @@ IMG_001.jpg
 如果数据库已经存在：
 
 ```text
-PRECHECK_DUPLICATE
+POSSIBLE_DUPLICATE
 ```
 
 该文件：
@@ -1273,7 +1308,25 @@ metadata:
     - CreateDate
     - ModifyDate
     - file_mtime
-    - upload_time
+```
+
+`upload_time` 不作为归档日期来源。
+
+原因：
+
+> 照片拍摄时间无法从 EXIF 获得时，使用文件 mtime；
+> 不允许用上传时间代替拍摄时间。
+
+例如一张 2005 年拍摄的照片在 2026 年导入，其归档目录必须是：
+
+```text
+Photos/2005/2005xx/
+```
+
+而不是：
+
+```text
+Photos/2026/202609/
 ```
 
 最终只需要：
@@ -1340,29 +1393,33 @@ V1 禁止：
 
 # 33. 文件状态
 
-V1 状态：
+V1 采用与数据库一致的状态机（具体以 `photo-gateway-v1-db-spec.md` 为准）：
+
+```text
+PRECHECK
+   ↓
+UPLOADING
+   ↓
+UPLOADED
+   ↓
+PROCESSING
+   ├── COMPLETED
+   ├── DUPLICATE
+   └── FAILED
+```
+
+V1 已删除旧状态：
 
 ```text
 NEW
 PRECHECK_DUPLICATE
-UPLOADING
-UPLOADED
-PROCESSING
 PENDING
-DUPLICATE
-FAILED
 CANCELLED
 ```
 
-其中：
+特别注意：
 
-```text
-PENDING
-```
-
-表示：
-
-> R5S 本地归档已经完成，等待后续阶段处理。
+> `CANCELLED` 是 Session 状态，不是 Upload Item 状态。
 
 V1 不定义：
 
@@ -1485,78 +1542,72 @@ CRITICAL
 
 # 37. API
 
-V1 API 至少包含：
+本总规格负责架构与业务规则，不再定义完整 API Schema，也不重复列出 API 端点清单。
+
+V1 的 HTTP API 资源路径族包括：
 
 ```text
-POST   /api/v1/sessions
-GET    /api/v1/sessions/{id}
-
-POST   /api/v1/sessions/{id}/files
-GET    /api/v1/sessions/{id}/files
-
-GET    /api/v1/photos/{id}
-
-GET    /api/v1/photos
-GET    /api/v1/photos/{id}/status
-
-GET    /api/v1/devices
-
-POST   /api/v1/photos/{id}/retry
-POST   /api/v1/photos/{id}/reupload
-
-GET    /api/v1/system/status
+/api/v1/auth
+/api/v1/devices
+/api/v1/upload-sessions
+/api/v1/upload-items
+/api/v1/photos
+/api/v1/system
 ```
 
-具体 API Schema 在后续 API Spec 中单独定义。
+具体 HTTP API 以：
+
+```text
+photo-gateway-v1-api-spec.md
+```
+
+为准。
+
+具体数据库结构以：
+
+```text
+photo-gateway-v1-db-spec.md
+```
+
+为准。
+
+具体配置以：
+
+```text
+photo-gateway-v1-config-spec.md
+```
+
+为准。
+
+具体 WebUI 行为以：
+
+```text
+photo-gateway-v1-webui-spec.md
+```
+
+为准。
 
 ---
 
 # 38. 照片状态 API
 
-例如：
+V1 的正式照片数据模型以：
 
-```http
-GET /api/v1/photos/10001
+```text
+photo-gateway-v1-db-spec.md
 ```
 
-返回：
+中的 `photo_assets` 表为准。
 
-```json
-{
-  "id": 10001,
-  "original_filename": "IMG_001.jpg",
-  "stored_filename": "IMG_001.jpg",
+具体照片列表、详情、原图等 HTTP API 以：
 
-  "file_size": 8237461,
-  "mime_type": "image/jpeg",
-
-  "sha256": "...",
-
-  "source_device": "xiaomi14",
-  "user_agent": "...",
-
-  "width": 4096,
-  "height": 3072,
-
-  "datetime_original": "2026-08-31 19:32:15",
-  "datetime_source": "DateTimeOriginal",
-
-  "camera_make": "Xiaomi",
-  "camera_model": "Xiaomi 14",
-  "lens_model": "...",
-
-  "year": 2026,
-  "year_month": "202608",
-
-  "current_path": "...",
-  "status": "PENDING",
-
-  "created_at": "...",
-  "updated_at": "..."
-}
+```text
+photo-gateway-v1-api-spec.md
 ```
 
-这些信息用于后续 WebUI 展示。
+为准。
+
+本总规格不再保留旧的 `photos` 对象模型（如 `year`、`year_month`、`current_path`、`width`、`height`、`datetime_original`、`status` 等字段），避免与数据库模型产生不一致。
 
 ---
 
@@ -1639,7 +1690,8 @@ server:
 auth:
   enabled: true
   username: admin
-  password_hash: "..."
+  password_hash: "$argon2id$..."
+  session_ttl_hours: 24
 
 devices:
   - id: xiaomi13ultra
@@ -1675,7 +1727,10 @@ storage:
   logs: logs
 
 upload:
-  concurrency: 3
+  concurrency: 1
+
+  precheck:
+    batch_size: 5
 
   allowed_extensions:
     - jpg
@@ -1708,7 +1763,6 @@ metadata:
     - CreateDate
     - ModifyDate
     - file_mtime
-    - upload_time
 
 disk:
   warning_percent: 80

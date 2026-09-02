@@ -319,25 +319,65 @@ devices:
 devices
 ```
 
-如果配置中增加设备：
+同步规则固定为三种情况：
+
+### 情况一：Config device 不存在于 DB
+
+```text
+Config device 不存在于 DB
+        ↓
+INSERT
+```
+
+即配置中新增设备：
 
 > 自动创建数据库记录。
 
-如果修改设备名称或启用状态：
-
-> 更新数据库。
-
-如果设备从配置中删除：
-
-> 不删除数据库记录。
-
-而是：
+### 情况二：Config device 已存在于 DB
 
 ```text
-enabled = 0
+Config device 已存在
+        ↓
+UPDATE name / type / enabled
 ```
 
-避免破坏历史数据。
+即修改设备名称、类型或启用状态：
+
+> 更新数据库对应记录。
+
+### 情况三：DB 有历史设备，但 Config 已删除
+
+```text
+DB 有历史设备，但 Config 已删除
+        ↓
+禁止物理 DELETE
+        ↓
+保留 DB 历史记录
+```
+
+不删除数据库记录。
+
+如果希望禁用设备：
+
+```yaml
+enabled: false
+```
+
+即可，而不是从配置中删除。
+
+这完全符合规则：
+
+> Device ID 一旦使用，不允许删除，只能禁用。
+
+原因：
+
+历史上传记录中的：
+
+```text
+source_device
+```
+
+需要能够回查设备信息。
 
 ---
 
@@ -531,6 +571,29 @@ Session 已创建，但尚未开始上传。
 - 上传完成
 - 或被 Precheck 跳过
 
+进入条件补充：
+
+> 所有上传前置条件完成，且没有 FAILED，
+> 但仍有 POSSIBLE_DUPLICATE 未处理时，Session 保持 UPLOADED。
+
+直到用户：
+
+```text
+确认重新上传
+```
+
+或者：
+
+```text
+明确跳过
+```
+
+之后才允许进入：
+
+```text
+PROCESSING
+```
+
 ## PROCESSING
 
 Worker 正在处理文件。
@@ -541,15 +604,63 @@ Worker 正在处理文件。
 
 ## PARTIAL
 
-部分成功、部分失败。
+进入条件：
+
+> 部分文件成功、部分文件失败。
+
+例如 100 个文件：
+
+```text
+80 COMPLETED
+10 DUPLICATE
+10 FAILED
+```
+
+Session：
+
+```text
+PARTIAL
+```
 
 ## FAILED
 
-Session 无法继续。
+进入条件：
+
+> Session 无法继续（例如所有文件均失败，或遇到不可恢复的系统级错误）。
 
 ## CANCELLED
 
 用户主动取消。
+
+---
+
+# 21.1 skipped_files 统计口径
+
+`skipped_files` 的统计必须明确：
+
+> 只统计用户明确选择跳过的 POSSIBLE_DUPLICATE。
+
+不要把所有 `POSSIBLE_DUPLICATE` 都直接计入 `skipped_files`。
+
+例如：
+
+```text
+900 个 POSSIBLE_DUPLICATE
+用户明确跳过 300 个
+用户重新上传 600 个
+```
+
+则：
+
+```text
+skipped_files = 300
+```
+
+而不是：
+
+```text
+skipped_files = 900
+```
 
 ---
 
@@ -579,6 +690,7 @@ CREATE TABLE upload_items (
 
     session_id          TEXT NOT NULL,
     source_device       TEXT NOT NULL,
+    client_item_id      TEXT NOT NULL,
 
     original_filename   TEXT NOT NULL,
     file_size           INTEGER NOT NULL,
@@ -607,9 +719,73 @@ CREATE TABLE upload_items (
         REFERENCES devices(id),
 
     FOREIGN KEY (asset_id)
-        REFERENCES photo_assets(id)
+        REFERENCES photo_assets(id),
+
+    UNIQUE (session_id, client_item_id)
 );
 ```
+
+---
+
+## 22.2 client_item_id
+
+`client_item_id` 是客户端生成的、在本 Session 内唯一的文件标识。
+
+用途：
+
+> 让批量 Precheck 具备真正的幂等性。
+
+例如：
+
+```text
+客户端发送 batch
+        ↓
+服务器成功创建 5 个 item
+        ↓
+响应在网络中丢失
+        ↓
+客户端重新发送 batch
+```
+
+如果没有客户端唯一 ID，服务器可能创建第二批 5 个 Item。
+
+有了：
+
+```sql
+UNIQUE (session_id, client_item_id)
+```
+
+后：
+
+> 重复请求会被唯一约束拒绝或返回已有记录，不会产生重复的 `upload_item`。
+
+因此：
+
+- `client_item_id` 由客户端生成（例如 UUID）
+- 同一 Session 内不得重复
+- 服务器以 `(session_id, client_item_id)` 作为批量创建的幂等键
+
+---
+
+## 22.3 批量 Precheck 幂等行为
+
+批量 Precheck 的幂等规则：
+
+```text
+客户端提交 batch（含 client_item_id）
+        ↓
+服务器逐条创建 upload_item
+        ↓
+若 (session_id, client_item_id) 已存在
+        ↓
+不创建新记录
+        ↓
+返回已有记录的 Precheck 结果
+```
+
+即：
+
+> 相同 `client_item_id` 的重复请求不会产生重复 `upload_item`，服务器返回已存在记录的结果。
 
 ---
 
@@ -860,6 +1036,10 @@ SQLite 使用 B-Tree 索引完成快速检索。
 
 只对历史上已经成功进入照片库的记录进行判断。
 
+判断条件明确为：
+
+> 只要 `upload_item.asset_id IS NOT NULL`，且对应 `photo_asset` 存在，就属于 Precheck 命中。
+
 逻辑等价于：
 
 ```sql
@@ -873,13 +1053,18 @@ WHERE ui.source_device = ?
 LIMIT 1;
 ```
 
-这里：
+命中判定：
 
 ```text
-photo_assets
+COMPLETED → 命中
+DUPLICATE → 命中
+FAILED    → 不命中
 ```
 
-存在意味着该上传记录最终对应了一个照片资产。
+其中 `DUPLICATE` 尤其重要：
+
+> 当前文件虽然没有生成新的 `photo_asset`，但已经确认内容与已有 `photo_asset` 相同，
+> 因此下一次 Precheck 显然应该命中。
 
 因此：
 
@@ -1236,6 +1421,27 @@ IMG_001_2.jpg
 
 禁止覆盖已有照片。
 
+## 46.1 大小写与扩展名规则
+
+macOS / Linux / Windows 的大小写行为不同。
+
+例如：
+
+```text
+IMG_001.JPG
+IMG_001.jpg
+```
+
+V1 统一采用服务器侧规则：
+
+> 正式归档文件名保留原始大小写；冲突判断直接使用目标文件系统实际 `exists()` 结果，不自行假设大小写不敏感。
+
+R5S 实际运行 Linux，因此：
+
+- 文件名比较采用大小写敏感字符串比较
+- 以 Linux 文件系统实际路径为最终判断依据
+- 冲突时生成的唯一文件名保留原文件名的扩展名与大小写风格
+
 ---
 
 # 47. file_size
@@ -1299,7 +1505,6 @@ DateTimeOriginal
 CreateDate
 ModifyDate
 file_mtime
-upload_time
 ```
 
 优先级：
@@ -1312,9 +1517,20 @@ CreateDate
 ModifyDate
     ↓
 file_mtime
-    ↓
+```
+
+不允许：
+
+```text
 upload_time
 ```
+
+作为 `date_source`。
+
+原因：
+
+> 照片拍摄时间无法从 EXIF 获得时，使用文件 mtime；
+> 不允许用上传时间代替拍摄时间，避免 2005 年的照片被归档到 2026 年。
 
 ---
 
@@ -1495,6 +1711,106 @@ status = UPLOADED
 ```text
 photo_event = RECOVERED
 ```
+
+---
+
+## 57.1 恢复缺口说明
+
+文件系统和 SQLite 不是同一个事务，因此可能出现：
+
+```text
+processing
+    ↓
+Photos/YYYY/YYYYMM/
+    ↓
+DB INSERT photo_asset
+```
+
+之间发生宕机。
+
+例如：
+
+```text
+文件已经移动到：
+Photos/2026/202609/IMG.jpg
+
+但：
+photo_assets INSERT 尚未 commit
+
+R5S 突然断电
+```
+
+重启以后：
+
+```text
+数据库：没有这个 asset
+文件系统：有这个文件
+```
+
+这就是一个 orphan file（孤儿文件）。
+
+V1 Recovery 必须覆盖以下三类情况。
+
+---
+
+## 57.2 类型一：processing/ 有文件
+
+```text
+processing/ 有文件
+        ↓
+根据 upload_item 状态恢复处理
+```
+
+按第 57 节规则：
+
+```text
+processing/file.jpg
+        ↓
+incoming/file.jpg
+        ↓
+status = UPLOADED
+        ↓
+重新进入 Worker
+```
+
+---
+
+## 57.3 类型二：archive/ 有文件但 DB 没有 asset
+
+```text
+archive/ 有文件但 DB 没有 photo_asset
+        ↓
+计算 SHA256
+        ↓
+尝试恢复 photo_asset
+        ↓
+无法确定归属时
+        ↓
+移动到 failed/
+```
+
+即发现 orphan file 时：
+
+- 先计算文件 SHA-256
+- 若数据库已存在相同 SHA-256 的 `photo_asset`，将该文件视为重复，不重复入库
+- 若无法确定该文件归属（无对应 upload_item / 无法恢复），移动到 `failed/` 并记录事件
+
+---
+
+## 57.4 类型三：DB 有 photo_asset 但 archive 文件不存在
+
+```text
+DB 有 photo_asset
+但 archive 文件不存在
+        ↓
+标记系统异常
+        ↓
+禁止静默认为 COMPLETED
+```
+
+即数据库声称照片已归档，但实际文件丢失：
+
+> 必须标记为系统异常，禁止静默保持 `COMPLETED`，并写入错误日志 / 事件。
 
 ---
 
@@ -1728,18 +2044,46 @@ PROCESSING_FAILED
 
 失败时使用机器可识别的错误码。
 
-例如：
+错误码以 API Spec 中的统一 Error Code Registry 为准，示例：
 
 ```text
-UPLOAD_FAILED
-INVALID_FILE
 SHA256_FAILED
 EXIF_FAILED
 ARCHIVE_FAILED
 FILE_CONFLICT
 DATABASE_ERROR
+STORAGE_ERROR
+WORKER_ERROR
+INTERNAL_ERROR
+```
+
+已删除旧错误码：
+
+```text
+UPLOAD_FAILED
+INVALID_FILE
 UNKNOWN_ERROR
 ```
+
+如果需要泛化兜底错误：
+
+```text
+INTERNAL_ERROR
+```
+
+即可。
+
+统一链路：
+
+```text
+API error.code
+        ↓
+DB upload_items.error_code
+        ↓
+WebUI
+```
+
+三者使用同一套错误码，不允许各自维护独立错误码集合。
 
 ---
 
@@ -1800,6 +2144,11 @@ SHA-256：
 CREATE UNIQUE INDEX ux_photo_assets_sha256
 ON photo_assets (sha256);
 ```
+
+`client_item_id` 幂等键：
+
+> 表定义中的 `UNIQUE (session_id, client_item_id)` 由 SQLite 自动创建唯一索引，用于批量 Precheck 幂等：
+> 幂等键本身不需要额外维护，同时天然支持按 Session 快速检索。
 
 ---
 
@@ -2423,7 +2772,9 @@ V1 `upload_items` 允许的文件类型由配置文件控制。
 
 # 90. 时间字段规范
 
-所有数据库时间字段统一：
+### 系统时间字段
+
+以下字段统一为：
 
 ```text
 UTC ISO-8601
@@ -2435,6 +2786,17 @@ UTC ISO-8601
 2026-09-01T05:30:00Z
 ```
 
+```text
+created_at
+updated_at
+started_at
+completed_at
+uploaded_at
+processing_started_at
+```
+
+### date_taken
+
 照片的：
 
 ```text
@@ -2443,7 +2805,39 @@ date_taken
 
 表示照片实际拍摄时间。
 
-不要与：
+时区语义：
+
+> 保留照片原始时间语义；如果原始来源不包含时区，则不得人为假设为 UTC。
+
+原因：
+
+例如 EXIF 中的：
+
+```text
+2026-08-31 23:30
+```
+
+没有 timezone。
+
+如果强行假设 UTC 并转换，可能跨到：
+
+```text
+2026-09-01
+```
+
+直接影响：
+
+```text
+Photos/YYYY/YYYYMM/
+```
+
+归档目录。
+
+因此：
+
+> `date_taken` 保留原始来源的时间语义，不对无时区时间做时区推断。
+
+同时注意不要与：
 
 ```text
 created_at
@@ -2558,6 +2952,7 @@ CREATE TABLE upload_items (
 
     session_id            TEXT NOT NULL,
     source_device         TEXT NOT NULL,
+    client_item_id        TEXT NOT NULL,
 
     original_filename     TEXT NOT NULL,
     file_size             INTEGER NOT NULL,
@@ -2585,7 +2980,9 @@ CREATE TABLE upload_items (
         REFERENCES devices(id),
 
     FOREIGN KEY (asset_id)
-        REFERENCES photo_assets(id)
+        REFERENCES photo_assets(id),
+
+    UNIQUE (session_id, client_item_id)
 );
 
 CREATE TABLE photo_events (

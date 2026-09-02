@@ -117,6 +117,27 @@ IMG_001.jpg
 
 V1 使用简单认证。
 
+认证流程固定为：
+
+```text
+config.yaml
+    ↓
+username + password_hash
+    ↓
+POST /api/v1/auth/login
+    ↓
+Session Token
+    ↓
+Authorization: Bearer <token>
+    ↓
+其他 API
+```
+
+即：
+
+> 客户端先用用户名 + 密码调用登录接口获取 Session Token，
+> 再在后续请求中携带 Token 访问其他 API。
+
 认证方式：
 
 ```http
@@ -129,9 +150,99 @@ Authorization: Bearer <token>
 Authorization: Bearer xxxxxxxxx
 ```
 
-Token 从配置文件读取。
+Token 生命周期由配置：
 
-后续 WebUI 可以通过登录接口获取 Session Token，但 V1 不要求实现复杂用户体系。
+```text
+auth.session_ttl_hours
+```
+
+控制，默认 24 小时。
+
+Session Token 不再从配置文件直接读取。
+
+登出：
+
+```http
+POST /api/v1/auth/logout
+```
+
+使当前 Token 立即失效。
+
+V1 不实现复杂用户体系（不引入用户表、不实现 RBAC）。
+
+---
+
+## 6.1 登录
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "username": "admin",
+  "password": "..."
+}
+```
+
+成功：
+
+```json
+{
+  "success": true,
+  "data": {
+    "token": "xxxxx",
+    "expires_at": "2026-09-03T05:30:00Z"
+  }
+}
+```
+
+失败（用户名或密码错误）：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "AUTH_FAILED",
+    "message": "invalid username or password"
+  }
+}
+```
+
+密码比对使用配置中的：
+
+```text
+password_hash
+```
+
+（推荐 Argon2id）。
+
+---
+
+## 6.2 登出
+
+```http
+POST /api/v1/auth/logout
+Authorization: Bearer <token>
+```
+
+使当前 Token 立即失效。
+
+成功：
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+之后携带已失效 Token 的请求：
+
+> 返回 `401 AUTH_REQUIRED`。
 
 ---
 
@@ -249,6 +360,15 @@ V1 使用：
 |  429 | 请求过于频繁   |
 |  500 | 服务内部错误   |
 |  503 | 服务暂不可用   |
+|  507 | 存储空间不足   |
+
+`507 Insufficient Storage` 用于表达磁盘空间不足，业务错误码为：
+
+```text
+STORAGE_ERROR
+```
+
+例如归档阶段磁盘满时返回 507。
 
 ---
 
@@ -482,12 +602,17 @@ POST /api/v1/upload-sessions/{session_id}/items
 
 ```json
 {
+  "client_item_id": "uuid-1",
   "filename": "IMG_001.jpg",
   "file_size": 12345678
 }
 ```
 
 服务器执行 Precheck。
+
+`client_item_id` 为客户端生成的幂等键：
+
+> 同一 Session 内相同 `client_item_id` 的重复请求不会创建重复 upload_item。
 
 ---
 
@@ -504,6 +629,104 @@ file_size
 不上传文件内容。
 
 这样可以避免已经成功上传过的照片再次传输到 R5S。
+
+---
+
+## 20.1 批量 Precheck
+
+```http
+POST /api/v1/upload-sessions/{session_id}/items/precheck
+Content-Type: application/json
+```
+
+单批大小由配置：
+
+```text
+upload.precheck.batch_size
+```
+
+控制（默认 5）。
+
+请求为数组，每个元素与单条 Precheck 请求结构一致，并携带客户端生成的：
+
+```text
+client_item_id
+```
+
+例如：
+
+```json
+{
+  "items": [
+    {
+      "client_item_id": "uuid-1",
+      "filename": "IMG_001.jpg",
+      "file_size": 12345678
+    },
+    {
+      "client_item_id": "uuid-2",
+      "filename": "IMG_002.jpg",
+      "file_size": 23456789
+    }
+  ]
+}
+```
+
+响应为数组，每个元素与单条 Precheck 响应结构一致：
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "client_item_id": "uuid-1",
+        "item_id": 1001,
+        "filename": "IMG_001.jpg",
+        "file_size": 12345678,
+        "precheck_status": "NO_MATCH",
+        "status": "PRECHECK",
+        "upload_required": true
+      },
+      {
+        "client_item_id": "uuid-2",
+        "item_id": 1002,
+        "filename": "IMG_002.jpg",
+        "file_size": 23456789,
+        "precheck_status": "POSSIBLE_DUPLICATE",
+        "status": "PRECHECK",
+        "upload_required": false
+      }
+    ]
+  }
+}
+```
+
+### 批量 Precheck 幂等性
+
+批量 Precheck 以：
+
+```sql
+(session_id, client_item_id)
+```
+
+为幂等键。
+
+> 相同 `client_item_id` 的重复请求不会创建重复的 upload_item，服务器返回已存在记录的结果。
+
+例如请求在网络中丢失后重试：
+
+```text
+客户端重发相同 batch
+        ↓
+已存在 (session_id, client_item_id)
+        ↓
+不创建新记录
+        ↓
+返回已有结果
+```
+
+因此批量 Precheck 可以安全重试。
 
 ---
 
@@ -1863,11 +2086,17 @@ Immich 继续通过 External Library 使用照片目录。
 
 # 69. API 错误码
 
+V1 错误码以本节为唯一 Error Code Registry。
+
+> 本节是错误码的唯一真相来源；
+> API、DB `upload_items.error_code`、WebUI 三者共用同一套错误码。
+
 V1 标准错误码：
 
 ```text
 AUTH_REQUIRED
 AUTH_INVALID
+AUTH_FAILED
 FORBIDDEN
 
 DEVICE_NOT_FOUND
@@ -1904,6 +2133,14 @@ WORKER_ERROR
 RATE_LIMITED
 INTERNAL_ERROR
 SERVICE_UNAVAILABLE
+```
+
+说明：
+
+```text
+AUTH_FAILED   登录时用户名或密码错误
+STORAGE_ERROR 磁盘空间不足等存储问题，HTTP 对应 507
+INTERNAL_ERROR 泛化兜底错误
 ```
 
 ---
@@ -2256,6 +2493,9 @@ HTTP Method
 # 83. V1 API 总览
 
 ```text
+POST   /api/v1/auth/login
+POST   /api/v1/auth/logout
+
 GET    /api/v1/devices
 
 POST   /api/v1/upload-sessions
@@ -2267,6 +2507,7 @@ POST   /api/v1/upload-sessions/{id}/complete
 POST   /api/v1/upload-sessions/{id}/cancel
 
 POST   /api/v1/upload-sessions/{id}/items
+POST   /api/v1/upload-sessions/{id}/items/precheck
 
 GET    /api/v1/upload-items/{id}
 POST   /api/v1/upload-items/{id}/file

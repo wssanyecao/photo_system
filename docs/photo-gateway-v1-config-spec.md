@@ -193,7 +193,10 @@ storage:
   logs: logs
 
 upload:
-  concurrency: 3
+  concurrency: 1
+
+  precheck:
+    batch_size: 5
 
   allowed_extensions:
     - jpg
@@ -226,7 +229,6 @@ metadata:
     - CreateDate
     - ModifyDate
     - file_mtime
-    - upload_time
 
 disk:
   warning_percent: 80
@@ -328,6 +330,7 @@ auth:
   enabled: true
   username: admin
   password_hash: "$..."
+  session_ttl_hours: 24
 ```
 
 ---
@@ -393,15 +396,40 @@ string
 password: 123456
 ```
 
-这种形式。
-
-推荐使用 Argon2id。
+这种形式。推荐使用 Argon2id。
 
 例如：
 
 ```text
 $argon2id$v=19$...
 ```
+
+---
+## 6.4 session_ttl_hours
+
+类型：
+
+```text
+int
+```
+
+默认：
+
+```text
+24
+```
+
+含义：
+
+> 登录成功后 Session Token 的有效期（小时）。
+
+默认 24 小时。
+
+到达有效期后：
+
+> 客户端需要重新调用 `/api/v1/auth/login` 获取新的 Session Token。
+
+该配置不引入用户表，仅用于控制简单认证的 Token 生命周期。
 
 ---
 
@@ -858,7 +886,10 @@ USB HDD 掉线
 
 ```yaml
 upload:
-  concurrency: 3
+  concurrency: 1
+
+  precheck:
+    batch_size: 5
 
   allowed_extensions:
     - jpg
@@ -883,14 +914,85 @@ integer
 推荐默认：
 
 ```text
-3
+1
 ```
 
 含义：
 
-> HTTP 上传层允许同时处理的文件上传数量。
+> HTTP 上传层允许同时处理的照片文件传输数量。
 
 注意：
+
+```text
+upload.concurrency
+```
+
+和：
+
+```text
+upload.precheck.batch_size
+```
+
+以及：
+
+```text
+processing.worker_count
+```
+
+是三个不同概念：
+
+```text
+precheck.batch_size = 5
+一次 HTTP Precheck 请求处理多少个文件的元数据
+
+upload.concurrency = 1
+同时传输多少个实际照片文件
+
+worker_count = 1
+后台同时处理多少个照片文件
+```
+
+由于 V1 实际运行在 R5S + USB HDD 上，推荐：
+
+```text
+upload.concurrency = 1
+```
+
+---
+
+# 25. upload.precheck.batch_size
+
+类型：
+
+```text
+integer
+```
+
+默认：
+
+```text
+5
+```
+
+含义：
+
+> 单次 HTTP Precheck 请求最多包含的文件元数据数量。
+
+例如一次选择 1000 张照片：
+
+```text
+1000 / 5 = 200 次请求
+```
+
+而不是：
+
+```text
+1000 次请求
+```
+
+这样可以在批量 Precheck 时显著减少 HTTP 往返次数。
+
+该配置只影响 Precheck 请求的批量大小，不影响：
 
 ```text
 upload.concurrency
@@ -902,11 +1004,9 @@ upload.concurrency
 processing.worker_count
 ```
 
-是两个不同概念。
-
 ---
 
-# 25. processing.worker_count
+# 26. processing.worker_count
 
 V1：
 
@@ -952,7 +1052,7 @@ worker_count > 1
 
 ---
 
-# 26. upload.allowed_extensions
+# 27. upload.allowed_extensions
 
 类型：
 
@@ -986,7 +1086,7 @@ IMG_001.jpg
 
 ---
 
-# 27. 推荐照片扩展名
+# 28. 推荐照片扩展名
 
 V1 默认：
 
@@ -1012,7 +1112,7 @@ allowed_extensions:
 
 ---
 
-# 28. 视频
+# 29. 视频
 
 V1：
 
@@ -1039,7 +1139,7 @@ IMG_001.mp4
 
 ---
 
-# 29. 扩展名不是 MIME 类型校验
+# 30. 扩展名不是 MIME 类型校验
 
 V1 第一层只根据：
 
@@ -1065,7 +1165,7 @@ test.jpg
 
 ---
 
-# 30. tmp_cleanup
+# 31. tmp_cleanup
 
 定义 `.tmp` 自动清理。
 
@@ -1077,7 +1177,7 @@ tmp_cleanup:
 
 ---
 
-# 31. tmp_cleanup.enabled
+# 32. tmp_cleanup.enabled
 
 默认：
 
@@ -1099,7 +1199,7 @@ enabled: false
 
 ---
 
-# 32. tmp_cleanup.max_age_days
+# 33. tmp_cleanup.max_age_days
 
 默认：
 
@@ -1141,7 +1241,7 @@ processing.log
 
 ---
 
-# 33. metadata
+# 34. metadata
 
 定义照片元数据处理规则。
 
@@ -1152,12 +1252,13 @@ metadata:
     - CreateDate
     - ModifyDate
     - file_mtime
-    - upload_time
 ```
+
+`upload_time` 不作为归档日期来源，已从 V1 中删除。
 
 ---
 
-# 34. metadata.date_priority
+# 35. metadata.date_priority
 
 类型：
 
@@ -1176,12 +1277,19 @@ DateTimeOriginal
 CreateDate
 ModifyDate
 file_mtime
+```
+
+不允许：
+
+```text
 upload_time
 ```
 
+作为 `date_source`。
+
 ---
 
-# 35. DateTimeOriginal
+# 36. DateTimeOriginal
 
 优先使用：
 
@@ -1205,7 +1313,7 @@ EXIF DateTimeOriginal
 
 ---
 
-# 36. CreateDate
+# 37. CreateDate
 
 如果没有：
 
@@ -1221,7 +1329,7 @@ CreateDate
 
 ---
 
-# 37. ModifyDate
+# 38. ModifyDate
 
 如果前面都不存在：
 
@@ -1231,29 +1339,11 @@ ModifyDate
 
 ---
 
-# 38. file_mtime
+# 39. file_mtime
 
 如果 EXIF 时间均不存在：
 
 > 使用文件 mtime。
-
----
-
-# 39. upload_time
-
-如果以上全部无法获得：
-
-> 使用文件上传完成时间。
-
-必须记录：
-
-```text
-date_source = upload_time
-```
-
-这样以后可以知道：
-
-> 该照片日期并非来自照片本身。
 
 ---
 
@@ -1648,7 +1738,8 @@ config
 ├── auth
 │   ├── enabled
 │   ├── username
-│   └── password_hash
+│   ├── password_hash
+│   └── session_ttl_hours
 ├── devices[]
 │   ├── id
 │   ├── name
@@ -1663,6 +1754,8 @@ config
 │   └── logs
 ├── upload
 │   ├── concurrency
+│   ├── precheck
+│   │   └── batch_size
 │   ├── allowed_extensions[]
 │   └── tmp_cleanup
 │       ├── enabled
@@ -1694,6 +1787,7 @@ config
 | `auth.enabled`                    | bool   |                      `true` | 否   | 是否启用认证  |
 | `auth.username`                   | string |                          无 | 是*  | 登录用户名    |
 | `auth.password_hash`              | string |                          无 | 是*  | 密码 Hash     |
+| `auth.session_ttl_hours`          | int    |                        `24` | 否   | Token 有效期  |
 | `devices`                         | list   |                          无 | 是   | 设备列表      |
 | `devices[].id`                    | string |                          无 | 是   | 稳定设备 ID   |
 | `devices[].name`                  | string |                          无 | 是   | 展示名称      |
@@ -1705,7 +1799,8 @@ config
 | `storage.archive`                 | string |                    `Photos` | 否   | 正式照片目录  |
 | `storage.database`                | string | `database/photo-gateway.db` | 否   | SQLite        |
 | `storage.logs`                    | string |                      `logs` | 否   | 日志目录      |
-| `upload.concurrency`              | int    |                         `3` | 否   | 上传并发      |
+| `upload.concurrency`              | int    |                         `1` | 否   | 上传并发      |
+| `upload.precheck.batch_size`      | int    |                         `5` | 否   | Precheck 批量 |
 | `upload.allowed_extensions`       | list   |                      见正文 | 是   | 允许扩展名    |
 | `upload.tmp_cleanup.enabled`      | bool   |                      `true` | 否   | 是否清理 tmp  |
 | `upload.tmp_cleanup.max_age_days` | int    |                         `7` | 否   | tmp 保留时间  |
@@ -1837,6 +1932,7 @@ storage.root 不存在
 磁盘阈值非法
 worker_count < 1
 concurrency < 1
+precheck.batch_size < 1
 allowed_extensions 为空
 date_priority 为空
 认证启用但用户名为空
