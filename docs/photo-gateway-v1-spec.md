@@ -720,15 +720,11 @@ Session 保存：
 ```text
 session_id
 source_device
-total_count
-precheck_duplicate_count
-uploading_count
-uploaded_count
-processing_count
-success_count
-failed_count
-created_at
-updated_at
+状态
+文件数量统计
+时间信息
+
+具体字段以 DB Spec 为准
 ```
 
 ---
@@ -1144,7 +1140,7 @@ V1 应做到：
 
 # 25. 疑似重复列表
 
-Session 完成后：
+Precheck 完成后：
 
 ```text
 总计：1000
@@ -1250,7 +1246,7 @@ IMG_001_1.jpg
 
 ```text
 original_filename
-stored_filename
+current_filename
 sha256
 ```
 规则：

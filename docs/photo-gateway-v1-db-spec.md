@@ -211,7 +211,6 @@ version = 1
 CREATE TABLE devices (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
-    type        TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
@@ -254,25 +253,6 @@ Windows PC
 ```
 
 用于 WebUI 展示。
-
----
-
-# 11. devices.type
-
-设备类型。
-
-V1 支持：
-
-```text
-android
-ios
-macos
-windows
-```
-
-该字段用于描述设备所属平台。
-
-设备定义时已经确定，因此不再在 `upload_sessions` 中保存 `client_type`。
 
 ---
 
@@ -1131,7 +1111,7 @@ incoming/
 
 900 张暂时不上传。
 
-Session 完成后，WebUI 展示：
+Precheck 完成后，WebUI 展示：
 
 ```text
 疑似重复照片：900

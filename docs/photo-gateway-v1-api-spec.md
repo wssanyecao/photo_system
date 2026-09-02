@@ -1360,6 +1360,30 @@ POST /api/v1/upload-sessions/{session_id}/complete
 {}
 ```
 
+成功返回：
+
+```json
+{
+  "success": true,
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "PROCESSING"
+  }
+}
+```
+
+异常返回：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UPLOAD_UNCOMPLETED",
+    "message": "Please check the upload status of this session"
+  }
+}
+```
+
 complete 只负责通知服务器，“客户端上传阶段”已经结束，不负责决定最终 Session 结果。
 ```
 complete：
@@ -2117,6 +2141,7 @@ UPLOAD_ALREADY_COMPLETED
 UPLOAD_NOT_ALLOWED
 
 REUPLOAD_CONFIRMATION_REQUIRED
+UPLOAD_UNCOMPLETED
 
 FILE_NOT_FOUND
 FILE_TOO_LARGE
@@ -2516,7 +2541,7 @@ POST   /api/v1/upload-sessions/{id}/items/precheck
 
 GET    /api/v1/upload-items/{id}
 POST   /api/v1/upload-items/{id}/file
-POST   /api/v1/upload-items/{id}/reupload
+POST   /api/v1/upload-items/{id}/confirmation
 POST   /api/v1/upload-items/{id}/retry
 
 GET    /api/v1/photos

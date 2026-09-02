@@ -779,16 +779,21 @@ Worker 并发 = 1
 
 # 29. 上传完成
 
-文件成功传输到：
+当所有文件成功传输到：
 
 ```text
 incoming/
 ```
 
-之后 WebUI 显示：
+之后程序自动调用API：
+```
+POST /api/v1/upload-sessions/{session_id}/complete
+```
+
+WebUI 根据接口返回结果，显示：
 
 ```text
-上传完成
+上传完成  or  请检查上传状态
 ```
 
 但：
