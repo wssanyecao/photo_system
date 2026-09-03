@@ -365,27 +365,41 @@ ABNORMAL
 
 ---
 
-# 13. Month State 的创建规则
+# 13. Month State 创建规则
 
-以下情况必须创建新的 Month State 记录：
+Month State 采用追加写入方式记录状态历史，不覆盖历史记录。
 
-1. 系统首次为某个 `YYYYMM` 建立状态；
-2. 月份达到连续失败阈值并进入 `ABNORMAL`；
-3. 管理员执行 Retry；
-4. Retry 后月份恢复为 `NORMAL`；
-5. 其他导致 Month State 发生变化的明确状态转换。
+以下情况需要创建新的 Month State：
 
-如果某次 Sync Task 失败但尚未达到 ABNORMAL 条件，则不要求仅因为 Task 失败而创建新的 Month State 记录。
+1. 月目录首次进入 `ABNORMAL`；
+    
+2. 人工对 `ABNORMAL` 月目录执行 Retry，创建 `RETRY_REQUESTED`；
+    
+3. Retry 周期正式开始时，创建 `NORMAL`，表示进入新的故障处理周期；
+    
+4. 新的失败处理周期达到连续失败阈值，再次创建 `ABNORMAL`；
+    
+5. Retry 成功恢复时，如果当前状态已经通过其他流程明确为 `NORMAL`，不得重复创建无意义的 `NORMAL` 记录。
+    
 
-例如：
+普通同步失败但尚未达到连续失败阈值时，不需要为每次失败单独创建 Month State。
 
-```text
-Month State = NORMAL
-Task = FAILED
-consecutive_failed_count = 1
-```
+## 13.1 Failure Cycle
 
-如果月份仍然属于正常自动处理状态，则 Month State 可以继续保持最新状态为 `NORMAL`。
+每个 `archive_month` 的连续失败统计均属于一个明确的 failure cycle。
+
+Failure cycle 的边界由人工 Retry 产生的 `RETRY_REQUESTED` Month State 确定：
+
+- `RETRY_REQUESTED` 之前的 Sync Task 属于旧 failure cycle；
+    
+- `RETRY_REQUESTED` 之后产生的 Sync Task 属于新的 failure cycle；
+    
+- 新 failure cycle 的连续失败计数从 0 开始；
+    
+- 旧 failure cycle 中的 FAILED Task 不得继续参与新 failure cycle 的连续失败计算。
+    
+
+因此，人工 Retry 不只是允许再次同步，同时也是一次新的故障处理周期切换。
 
 ---
 
@@ -607,78 +621,89 @@ Sync Task 的成功判定主要依据 rsync 的执行结果。
 
 ---
 
-# 21. 连续失败与 ABNORMAL
+# 21. 连续失败判定
 
-V2 必须对单个 `YYYYMM` 的连续同步失败进行隔离。
+V2 对每个 `archive_month` 独立进行连续失败统计。
 
-默认检查最近：
+连续失败阈值默认为 `3`，具体值可通过配置调整。
 
-```text
-3
-```
+## 21.1 统计范围
 
-个实际 Sync Task。
+连续失败只统计**当前 failure cycle**中的实际 Sync Task。
 
-该数量应可配置。
+当前 failure cycle 的起点规则如下：
 
-例如某月份历史执行记录为：
+- 如果该月从未发生过人工 Retry，则从该月第一个 Sync Task 开始；
+- 如果该月存在最新的 `RETRY_REQUESTED` Month State，则该记录的 `created_at` 作为新的 failure cycle 边界；
+- 只统计该边界之后创建的 Sync Task；
+- 边界之前的历史 Sync Task 永远不参与新的连续失败计算。
 
-```text
-SUCCESS
-FAILED
-SUCCESS
-FAILED
-FAILED
-FAILED
-```
+在当前 failure cycle 内，从最新 Sync Task 开始向前检查实际执行结果：
 
-则只检查最近三个实际执行：
+- `FAILED`：连续失败计数 +1；
+- `SUCCESS`：连续失败计数归零，并结束当前连续失败序列；
+- `PENDING` / `RUNNING`：不参与失败计数，因为尚未产生最终执行结果。
 
-```text
-FAILED
-FAILED
-FAILED
-```
+## 21.2 达到阈值
 
-因此该月份进入：
+当当前 failure cycle 内最近连续失败的 Sync Task 数量达到配置的失败阈值时，该 `archive_month` 必须进入 `ABNORMAL` 状态。
 
-```text
-ABNORMAL
-```
+进入 `ABNORMAL` 时：
 
-历史累计失败次数不参与 ABNORMAL 判断。
+1. 创建一条新的 `photo_sync_month_states` 记录；
+2. `state = ABNORMAL`；
+3. 记录对应的失败次数及相关任务信息；
+4. 后续 Difference Check 不得自动将该月加入新的同步 Batch；
+5. Cleanup 不得删除该月目录。
+
+历史 Sync Task 和历史 Month State 均保留，不进行覆盖。
 
 ---
 
-# 22. ABNORMAL 状态的产生
+# 22. ABNORMAL 状态创建
 
-当某个 `YYYYMM` 达到连续失败阈值时：
+当某个 `archive_month` 在当前 failure cycle 内达到连续失败阈值时，系统创建新的 `ABNORMAL` Month State。
 
-1. 当前 Sync Task 保持 `FAILED`；
-2. 计算该月份最近 N 个实际 Sync Task；
-3. 如果最近 N 个 Task 全部为 `FAILED`，则该月份进入 `ABNORMAL`；
-4. 创建一条新的 Month State 历史记录；
-5. 新记录的 `state` 为 `ABNORMAL`；
-6. 记录异常发生时间、连续失败次数及异常原因。
+例如，失败阈值为 3：
+
+```text
+Task #101 FAILED
+Task #102 FAILED
+Task #103 FAILED
+        ↓
+创建 Month State: ABNORMAL
+```
+
+此时：
+
+```text
+当前 Month State = ABNORMAL
+当前 failure cycle = Cycle 1
+```
+
+该月不会继续被自动加入同步 Batch。
+
+## 22.1 ABNORMAL 的历史性质
+
+`ABNORMAL` 是 Month State 的一种历史状态记录，而不是 Sync Task 的状态。
+
+每次重新进入 `ABNORMAL`，都必须创建新的 Month State 记录，不得修改历史 `ABNORMAL` 记录。
 
 例如：
 
 ```text
-Task #101 → FAILED
-Task #102 → FAILED
-Task #103 → FAILED
+NORMAL
+  ↓
+ABNORMAL
+  ↓
+RETRY_REQUESTED
+  ↓
+NORMAL
+  ↓
+ABNORMAL
 ```
 
-达到阈值后新增：
-
-```text
-Month State #55
-archive_month = 202608
-state = ABNORMAL
-consecutive_failed_count = 3
-```
-
-历史 Month State 记录不得被覆盖。
+上述两个 `ABNORMAL` 必须对应两条独立的历史记录。
 
 ---
 
@@ -702,93 +727,164 @@ ABNORMAL 是当前月份的运行控制状态，而不是历史同步结果。
 
 ---
 
-# 24. WebUI Retry
+# 24. Retry 机制
 
-对于 ABNORMAL 月份，WebUI 必须提供人工 Retry 操作。
+只有人工操作才能解除 `ABNORMAL` 月目录的自动同步隔离。
 
-管理员执行 Retry 后，不得直接修改原有 ABNORMAL 记录。
+WebUI 对 `ABNORMAL` 月目录执行 Retry 时：
 
-系统必须新增一条 Month State 记录：
+1. 不修改历史 `ABNORMAL` 记录；
+2. 创建新的 Month State：  
+    `state = RETRY_REQUESTED`；
+3. `RETRY_REQUESTED` 记录同时作为新的 failure cycle 边界；
+4. 后续产生的 Sync Task 开始进入新的 failure cycle；
+5. Retry 之前的 FAILED Task 不再参与新的连续失败计算。
+
+状态变化：
 
 ```text
-ABNORMAL → RETRY_REQUESTED
+ABNORMAL
+    ↓
+RETRY_REQUESTED
+    ↓
+新的 failure cycle
 ```
 
-该记录表示管理员已经明确允许该月份重新进入同步流程。
+`RETRY_REQUESTED` 本身不是 Sync Task 状态，也不代表同步已经成功。
 
-下一轮 Difference Check 时，如果发现该月份仍然存在差异，则允许其进入新的 Sync Batch。
+## 24.1 Retry 与 Sync Task
 
-当新的 Sync Task 开始执行时，该月份已经重新获得自动同步资格。
+Retry 不创建虚假的 Sync Task。
+只有实际执行同步时，才创建新的 `photo_sync_tasks` 记录。
+因此：
+
+```text
+ABNORMAL
+    ↓
+RETRY_REQUESTED
+    ↓
+实际开始同步
+    ↓
+创建新的 Sync Task
+```
+
+新的 Sync Task 与旧 failure cycle 中的 Task 完全独立。
 
 ---
 
 # 25. Retry 成功
 
-如果 Retry 后：
+Retry 后，如果新的 failure cycle 中实际执行的 Sync Task 最终为 `SUCCESS`：
 
-```text
-Task #104 → SUCCESS
-```
-
-则必须新增一条 Month State 记录：
-
-```text
-state = NORMAL
-```
-
-因此状态历史可能为：
-
-```text
-NORMAL
-ABNORMAL
-RETRY_REQUESTED
-NORMAL
-```
-
-此时最新 Month State 为 `NORMAL`，该月份恢复正常自动同步和 Cleanup 生命周期。
-
----
-
-# 26. Retry 再次失败
-
-如果 Retry 后新的 Sync Task 失败，则继续按照最近 N 个实际 Sync Task 判断连续失败情况。
+1. Sync Task 标记为 `SUCCESS`；
+2. 创建新的 Month State：  
+    `state = NORMAL`；
+3. 当前 Month State 变为 `NORMAL`；
+4. 该月重新恢复正常自动同步资格；
+5. 后续如果 Difference Check 发现新的照片需要同步，可以再次创建新的 Sync Task。
 
 例如：
 
 ```text
-Task #101 → FAILED
-Task #102 → FAILED
-Task #103 → FAILED
+Cycle 1:
+Task #101 FAILED
+Task #102 FAILED
+Task #103 FAILED
+        ↓
+ABNORMAL
+
+人工 Retry
+        ↓
+RETRY_REQUESTED
+        ↓
+Cycle 2
+
+Task #104 SUCCESS
+        ↓
+NORMAL
+```
+
+`Task #101`～`#103` 属于旧 failure cycle，`Task #104` 属于新的 failure cycle。
+
+---
+
+# 26. Retry 后再次失败
+
+Retry 后必须开启新的 failure cycle。
+新 failure cycle 的连续失败计数从 0 开始，Retry 之前的失败记录不得参与新的计数。
+例如失败阈值为 3：
+
+```text
+Cycle 1:
+
+Task #101 FAILED
+Task #102 FAILED
+Task #103 FAILED
+        ↓
+ABNORMAL
+
+
+人工 Retry
+        ↓
+RETRY_REQUESTED
+
+
+Cycle 2:
+
+Task #104 FAILED
+        ↓
+连续失败 = 1
+Month State = NORMAL
+
+Task #105 FAILED
+        ↓
+连续失败 = 2
+Month State = NORMAL
+
+Task #106 FAILED
+        ↓
+连续失败 = 3
+Month State = ABNORMAL
+```
+
+因此，虽然全局历史上最近的 3 个 Task 为：
+
+```text
+#104 FAILED
+#105 FAILED
+#106 FAILED
+```
+
+它们仍然是 **Cycle 2** 内的连续失败，因此达到阈值后进入新的 `ABNORMAL`。
+反之：
+
+```text
+Cycle 1:
+#101 FAILED
+#102 FAILED
+#103 FAILED
 → ABNORMAL
 
-管理员 Retry
+Retry
+→ RETRY_REQUESTED
 
-Task #104 → FAILED
+Cycle 2:
+#104 FAILED
 ```
 
-此时应根据系统定义的“连续失败计数重置规则”计算新的连续失败次数。
+此时不得因为 `#102`、`#103`、`#104` 都是 FAILED，就立即再次进入 `ABNORMAL`。
+`#102` 和 `#103` 属于 Cycle 1，已经跨越了 `RETRY_REQUESTED` 边界，因此不参与 Cycle 2 的失败统计。
+## 26.1 Retry 后第一次失败
 
-推荐规则为：
-
-> 一次人工 Retry 表示一次新的故障处理周期。Retry 请求后开始的新同步执行，应重新计算该故障周期的连续失败次数。
-
-因此：
+Retry 后第一次实际同步失败时：
 
 ```text
-Task #104 → FAILED
 consecutive_failed_count = 1
-Month State = NORMAL
 ```
 
-只有 Retry 后重新连续失败达到阈值，才再次创建新的：
-
-```text
-ABNORMAL
-```
-
-Month State 历史记录。
-
-这样可以明确区分不同故障周期，避免历史故障与人工修复后的新故障混合计算。
+Month State 保持 `NORMAL`。
+此时不创建新的 `ABNORMAL`，也不修改历史 `ABNORMAL` 或 `RETRY_REQUESTED` 记录。
+只有当前 failure cycle 内连续失败次数再次达到配置阈值时，才创建新的 `ABNORMAL` Month State。
 
 ---
 
