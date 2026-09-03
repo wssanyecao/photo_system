@@ -469,9 +469,7 @@ LIMIT 1;
 
 实际 SQL 以最终数据库实现为准。
 
-如果某个 `YYYYMM` 不存在任何 Month State 记录，则按照系统初始化规则视为 `NORMAL`，或者在首次发现该月份时创建一条 `NORMAL` 记录。实现必须统一采用其中一种方式，不得在不同业务流程中使用不同解释。
-
-推荐在首次发现月份时创建：
+如果某个 `YYYYMM` 不存在任何 Month State 记录，即首次发现该月份，此时需创建一条 `NORMAL` 记录。
 
 ```text
 archive_month = 202604
@@ -1909,31 +1907,11 @@ RETRY_REQUESTED
 下一轮 Difference Check 发现差异后：
 
 ```text
-创建新的 Sync Task
+创建第一个新的 Sync Task
+然后立即再创建 NORMAL
 ```
 
-如果：
-
-```text
-Task #204 → SUCCESS
-```
-
-则新增：
-
-```text
-Month State:
-NORMAL
-```
-
-最终：
-
-```text
-ABNORMAL
-RETRY_REQUESTED
-NORMAL
-```
-
-最新状态为 `NORMAL`，该月份恢复正常自动同步和 Cleanup 生命周期。
+然后继续执行同步任务。
 
 ---
 
