@@ -289,7 +289,6 @@ SQLite Boolean：
 devices:
   - id: xiaomi14
     name: 小米 14
-    type: android
     enabled: true
 ```
 
@@ -318,10 +317,10 @@ INSERT
 ```text
 Config device 已存在
         ↓
-UPDATE name / type / enabled
+UPDATE name /  enabled
 ```
 
-即修改设备名称、类型或启用状态：
+即修改设备名称、启用状态：
 
 > 更新数据库对应记录。
 

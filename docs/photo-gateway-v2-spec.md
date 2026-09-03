@@ -1,296 +1,167 @@
-# Photo Gateway V2 Specification
+# Photo Gateway V2 技术规范书
 
-**文档版本：** V2.0  
+**文档名称：** Photo Gateway V2 Specification  
+**文档版本：** V2.2  
 **文档状态：** Design Baseline  
-**适用项目：** `photo_system` / Photo Gateway  
-**运行节点：** NanoPi R5S  
-**最终存储：** NAS  
-**更新时间：** 2026-09-02
+**更新时间：** 2026-09-03  
+**适用范围：** Photo Gateway V2  
+**上游版本：** Photo Gateway V1
 
 ---
 
 ## 1. 文档目的
 
-本文档定义 Photo Gateway V2 的 NAS 同步与 R5S 临时存储清理机制。
+Photo Gateway V2 在 V1 的基础上增加 NAS 同步、同步任务管理、失败隔离以及 R5S 临时照片目录生命周期管理能力。
 
-V2 建立在 V1 已完成的照片接收、去重、元数据提取、日期归档和 Photo Asset 管理能力之上，主要解决以下问题：
+V2 的核心职责是将 R5S `Photos/YYYY/YYYYMM/` 中已经完成 V1 处理的正式照片安全同步至 NAS，并在满足同步成功、保留周期及异常隔离等条件的情况下，清理 R5S 上已经完成生命周期管理的历史照片目录。
 
-1. 将 R5S 上已经完成归档的照片同步到 NAS。
-2. 以月份目录为同步管理单位，对每次实际同步操作建立数据库记录。
-3. 支持同一个月份目录被多次同步，例如历史月份再次上传新照片。
-4. 在同步失败时支持后续重试，并保留完整同步历史。
-5. 在确认数据已经成功同步并满足保留期限后，删除 R5S 上的历史临时数据。
-6. 保证 V1 照片接收/处理任务与 V2 NAS 同步任务之间不存在资源竞争。
-7. 保证任何情况下都不会因为 R5S 清理而删除 NAS 上的正式照片。
+V2 不负责照片上传、照片元数据解析或照片归档，上述功能由 V1 完成。
 
-V2 不改变 V1 已定义的照片接收、去重、元数据提取和正式归档规则。
+V2 不依赖 Immich 的内部存储机制。Immich 仅作为独立的照片管理系统，通过 External Library 读取 NAS 上的正式照片目录。
 
 ---
 
-# 2. 核心设计原则
+## 2. 设计原则
 
-## 2.1 全项目统一照片目录结构
+V2 必须遵循以下设计原则：
 
-无论 V1 还是 V2，照片正式归档目录统一使用：
+1. **V2 常驻运行。** V2 Worker 随 Photo Gateway 系统启动，在后台持续运行。
+2. **NAS 是 V2 的核心前置条件。** 每一轮 V2 工作周期的第一项操作必须是 NAS Alive Check。
+3. **V1 与 V2 串行处理。** V1 存在活动任务时，V2 不得执行 NAS Ready Check、Difference Check、Sync 或 Cleanup。
+4. **NAS Ready 是正式处理条件。** NAS Alive 仅表示 NAS 的 SSH 服务可达；只有 NAS Ready Check 成功后，V2 才能进入正式处理阶段。
+5. **Difference Check 是同步任务发现的唯一权威来源。** V2 不通过历史任务状态推测是否需要同步，而是通过实际 rsync 差异判断当前是否存在需要同步的数据。
+6. **Sync Task 表示一次实际同步执行。** 同一个 `YYYYMM` 可以对应多个历史 Sync Task，不得使用 `YYYYMM` 作为 Sync Task 的唯一键。
+7. **Batch 表示一次 V2 Cycle 中发现并计划执行的同步任务集合。**
+8. **Month State 表示某个 `YYYYMM` 在某个时间点的运行状态，并以历史记录形式保存。** 同一个 `YYYYMM` 可以存在多条 Month State 记录。
+9. **任何需要获取 YYYYMM 当前状态的业务逻辑，都必须获取该月份最新的一条 Month State 记录作为当前状态。**
+10. **每次进入 ABNORMAL 都必须产生一条独立的 Month State 历史记录。** 历史异常记录不得被后续状态覆盖。
+11. **同步失败必须局部隔离。** 单个月份同步失败不得影响其他月份的同步任务及 Cleanup 判断。
+12. **Cleanup 是每轮正式处理阶段的固定步骤。** Cleanup 不以本轮 Batch 是否存在、是否全部 SUCCESS 作为前置条件。
+13. **Cleanup 判断以月份为单位独立执行。** 某个月份是否允许删除，只取决于该月份自身的同步状态、当前 Month State 和保留周期。
+14. **删除操作不得影响 NAS 上的数据。** V2 禁止使用可能删除 NAS 文件的 `rsync --delete`。
+15. **历史任务和历史状态必须保留。** Sync Task 以及 Month State 均用于形成完整的执行和状态变化历史。
+
+---
+
+# 3. 系统角色
+
+V2 涉及以下三个主要存储位置：
+
+| 组件   | 角色          | 主要职责                 |
+| ------ | ------------- | ------------------------ |
+| Client | 数据来源      | 上传照片                 |
+| R5S    | Photo Gateway | 接收、处理并暂存正式照片 |
+| NAS    | 最终存储      | 保存正式照片             |
+
+R5S 上的正式照片目录固定为：
 
 ```text
-Photos/YYYY/YYYYMM/
+/mnt/sda1/photo-gateway/Photos/YYYY/YYYYMM/
+```
+
+NAS 上的目标目录保持与 R5S 相同的年月结构：
+
+```text
+<NAS_TARGET_ROOT>/YYYY/YYYYMM/
 ```
 
 例如：
 
 ```text
-Photos/
-├── 2025/
-│   ├── 202501/
-│   ├── 202502/
-│   └── 202512/
-└── 2026/
-    ├── 202601/
-    ├── 202602/
-    └── 202604/
+R5S:
+/mnt/sda1/photo-gateway/Photos/2026/202604/
+
+NAS:
+/data/Photos/2026/202604/
 ```
 
-**严禁使用 `Photos/YYYY/MM/` 作为项目中的照片存储结构。**
-
-例如一张照片 EXIF 时间为：
-
-```text
-2026-04-05 12:30:00
-```
-
-无论客户端实际上传时间是 2026 年 8 月还是其他时间，该照片均归档到：
-
-```text
-Photos/2026/202604/
-```
-
-V2 同步时也必须以此目录作为同步源。
+V2 不改变照片的归档目录结构。
 
 ---
 
-## 2.2 R5S 与 NAS 的角色
+# 4. V2 Worker 生命周期
 
-V2 中：
+V2 Worker 是 Photo Gateway 的后台常驻服务。
 
-```text
-R5S = 临时存储 / 同步源
-NAS = 最终正式存储
-```
+系统启动后，V2 Worker 应自动启动，并持续执行工作 Cycle。
 
-照片生命周期：
+每一个 Cycle 都必须按照以下顺序执行：
 
 ```text
-客户端
-  ↓
-R5S
-  ↓
-V1 接收、去重、处理
-  ↓
-Photos/YYYY/YYYYMM/
-  ↓
-V2 rsync
-  ↓
-NAS Photos/YYYY/YYYYMM/
-  ↓
-R5S 保留一段时间
-  ↓
-Cleanup
-  ↓
-删除 R5S 历史月份目录
+V2 Worker 启动
+        │
+        ▼
+NAS Alive Check
+        │
+        ├── FAIL ──────► 等待下一轮
+        │
+        ▼
+V1 Activity Check
+        │
+        ├── BUSY ──────► 等待下一轮
+        │
+        ▼
+NAS Ready Check
+        │
+        ├── FAIL ──────► 等待下一轮
+        │
+        ▼
+正式处理阶段
+        │
+        ├── Difference Check
+        │
+        ├── 创建 Batch / Sync Tasks
+        │
+        ├── 执行 Sync Tasks
+        │
+        └── Cleanup Check
+        │
+        ▼
+本轮结束
+        │
+        ▼
+Sleep
+        │
+        ▼
+下一轮重新从 NAS Alive Check 开始
 ```
 
-R5S 上的照片在 V2 中属于最终同步前的临时副本。
+## 4.1 Cycle 的定义
 
-NAS 是照片的最终正式存储空间。
+一个 Cycle 是从 NAS Alive Check 开始，到本轮正式处理完成并进入 Sleep 为止的一次完整 V2 工作周期。
+
+下一轮 Cycle 不得继承上一轮的前置条件。
+
+即使上一轮 NAS Alive、NAS Ready 均成功，下一轮仍必须重新执行 NAS Alive Check。
 
 ---
 
-## 2.3 V2 不负责修改 V1 的归档规则
+# 5. NAS Alive Check
 
-V2 不重新计算照片归档月份。
+NAS Alive Check 是每个 Cycle 的第一项操作。
 
-照片所属月份已经由 V1 根据照片元数据确定。
+在 NAS Alive Check 失败的情况下，V2 不得执行任何后续业务操作，包括：
 
-例如：
+- V1 Activity Check；
+- NAS Ready Check；
+- Difference Check；
+- Sync Task 创建；
+- Sync Task 执行；
+- Cleanup。
 
-```text
-客户端上传时间：
-2026-08-10
+NAS Alive Check 的目的仅是判断 NAS 当前是否具备基本网络及 SSH 可达性。
 
-照片 EXIF：
-2026-04-05
-```
+推荐使用 TCP/SSH 端口连通性检查。
 
-V1 将照片归档：
-
-```text
-Photos/2026/202604/
-```
-
-V2 发现 `202604` 目录存在需要同步的数据后，负责将：
-
-```text
-Photos/2026/202604/
-```
-
-同步到 NAS。
+Alive Check 成功仅表示 NAS 服务可达，不代表 NAS 已经满足正式同步条件。
 
 ---
 
-## 2.4 Sync Task 的业务含义
+# 6. V1 Activity Check
 
-`photo_sync_tasks` 表记录的是：
+NAS Alive Check 成功后，V2 必须检查 V1 当前是否存在活动任务。
 
-> **一次实际发生的“某个月份目录同步操作”。**
-
-它不是“月份状态表”。
-
-因此：
-
-```text
-202604
-```
-
-不是唯一键。
-
-同一个月份可以在不同时间产生多次 Sync Task。
-
-例如：
-
-```text
-2026-05-01：
-202604 → SUCCESS
-
-2026-08-10：
-又上传 3 张 202604 的历史照片
-202604 → SUCCESS
-```
-
-数据库应该保留两次同步记录，而不是覆盖第一次记录。
-
----
-
-## 2.5 时间格式统一
-
-V2 所有数据库时间字段、API 示例、日志示例和文档中的业务时间统一使用：
-
-```text
-YYYY-MM-DD HH:MM:SS
-```
-
-例如：
-
-```text
-2026-08-10 09:30:08
-```
-
-不使用 ISO 8601 的：
-
-```text
-2026-08-10T09:30:08
-```
-
-作为业务层标准展示格式。
-
----
-
-# 3. V2 整体架构
-
-```text
-                     ┌─────────────────────┐
-                     │      Client          │
-                     └──────────┬──────────┘
-                                │
-                                ▼
-                     ┌─────────────────────┐
-                     │     V1 Worker        │
-                     │ 接收 / 去重 / 处理     │
-                     └──────────┬──────────┘
-                                │
-                                ▼
-                    R5S Photos/YYYY/YYYYMM/
-                                │
-                                │
-                    ┌───────────▼───────────┐
-                    │      V2 Sync Worker    │
-                    └───────────┬───────────┘
-                                │
-                       等待 V1 完全空闲
-                                │
-                                ▼
-                     NAS Ready Check
-                                │
-                                ▼
-                      Sync Phase
-                                │
-                   ┌────────────┴────────────┐
-                   │                         │
-                   ▼                         ▼
-             202604 Task                202608 Task
-                   │                         │
-                   └────────────┬────────────┘
-                                │
-                             rsync
-                                │
-                                ▼
-                     NAS Photos/YYYY/YYYYMM/
-                                │
-                                ▼
-                     Sync Phase Complete
-                                │
-                                ▼
-                       Cleanup Phase
-                                │
-                       满足全部删除条件
-                                │
-                                ▼
-                  删除 R5S/YYYY/YYYYMM/
-```
-
----
-
-# 4. V2 工作阶段
-
-V2 Worker 每次运行按照以下阶段执行：
-
-```text
-IDLE
-  ↓
-PRECHECK
-  ↓
-WAIT_V1_IDLE
-  ↓
-SYNC
-  ↓
-SYNC_COMPLETED
-  ↓
-CLEANUP
-  ↓
-IDLE
-```
-
-如果 NAS 不可用、V1 正在工作或者其他前置条件不满足，Worker 不执行危险操作，等待下一轮处理。
-
----
-
-# 5. V1 / V2 资源隔离
-
-V1 和 V2 共用 R5S 的 CPU、内存、磁盘和网络资源。
-
-由于 R5S 使用 USB HDD 作为照片存储，必须避免 V1 文件接收/处理与 V2 rsync 同时进行大规模 I/O。
-
-因此 V2 必须遵守：
-
-> **V1 存在活动任务时，V2 可以创建或维护同步任务记录，但不得开始实际 rsync。**
-
----
-
-## 5.1 什么是 V1 活动任务
-
-V2 判断 V1 是否空闲时，不能只检查某一个数据库表，也不能只判断是否存在 Session。
-
-V1 以下任一状态均视为存在活动任务：
+V1 以下 Session 状态属于活动状态：
 
 ```text
 CREATED
@@ -299,154 +170,332 @@ UPLOADED
 PROCESSING
 ```
 
-其中：
+其中 `UPLOADED` 仍属于活动状态，因为 V1 的 `/complete` 操作可以将 Session 从 `UPLOADED` 推进至 `PROCESSING`。
 
-- `CREATED`：Session 已建立但尚未完成。
-- `UPLOADING`：客户端仍在上传。
-- `UPLOADED`：客户端上传阶段已经完成，但 V1 Worker 仍可能尚未完成处理。
-- `PROCESSING`：V1 Worker 正在执行照片处理。
+除 Upload Session 外，V1 Worker 中处于 `PENDING` 或 `PROCESSING` 状态的处理任务同样属于活动任务。
 
-特别注意：
+只要存在任意 V1 活动任务，V2 必须等待下一轮，不得继续执行 NAS Ready Check、Difference Check、Sync 或 Cleanup。
 
-> `UPLOADED` 不能被视为 V1 已经完全空闲。
-
-因为 V1 的 `/complete` 只代表客户端上传阶段结束，之后仍可能进入 Worker Processing。
+V1 完全空闲后，V2 才能进入 NAS Ready Check。
 
 ---
 
-## 5.2 V1 Worker 活动状态
+# 7. NAS Ready Check
 
-除 Session 状态外，V2 还必须考虑 V1 Worker 是否存在：
+NAS Alive Check 成功且 V1 完全 Idle 后，V2 执行 NAS Ready Check。
+
+NAS Ready Check 用于确认 NAS 不仅在线，而且具备实际同步条件。
+
+NAS Ready Check 至少应验证：
+
+| 检查项       | 要求                                       |
+| ------------ | ------------------------------------------ |
+| SSH          | 可以建立 SSH 会话                          |
+| 目标文件系统 | 已正确挂载                                 |
+| 文件系统状态 | 可正常访问                                 |
+| 写权限       | Photo Gateway 使用的账号具有目标目录写权限 |
+| 剩余空间     | 满足最低剩余空间要求                       |
+| 目标根目录   | 存在或可以正常创建                         |
+| rsync        | NAS 端 rsync 可正常执行                    |
+
+NAS Ready Check 任一关键项目失败，则本轮结束，不得执行 Difference Check、Sync 或 Cleanup。
+
+如果 NAS 在 Alive Check 与 Ready Check 之间发生故障，Ready Check 必须失败，本轮直接结束。
+
+---
+
+# 8. 正式处理阶段
+
+只有以下三个条件全部满足后，本轮才进入正式处理阶段：
 
 ```text
-pending
-processing
+NAS Alive = PASS
+V1 Activity = IDLE
+NAS Ready = PASS
 ```
 
-等尚未完成的处理任务。
+三项条件构成 V2 正式处理阶段的统一安全前提。
+
+进入正式处理阶段后，本轮依次执行：
+
+1. Difference Check；
+2. Batch / Sync Task 创建；
+3. Sync Task 执行；
+4. Cleanup Check。
+
+其中 Cleanup 不依赖本轮是否创建了 Sync Task，也不依赖本轮 Sync Task 是否全部成功。
+
+---
+
+# 9. Difference Check
+
+Difference Check 用于确定当前 R5S 上哪些 `YYYYMM` 目录存在尚未同步至 NAS 的内容。
+
+Difference Check 必须以 R5S 当前实际文件状态与 NAS 当前实际文件状态为依据。
+
+V2 不得仅根据历史 Sync Task 判断某个月份是否需要同步。
+
+推荐使用 rsync 的 dry-run / comparison 能力执行差异检查。
+
+例如：
+
+```bash
+rsync -rnt ...
+```
+
+实际参数由实现配置决定。
+
+Difference Check 的结果应至少包含：
+
+```text
+archive_month
+source_path
+target_path
+difference_detected
+```
+
+只有 `difference_detected = true` 的月份才能创建新的 Sync Task。
+
+---
+
+# 10. 已成功同步月份的重新同步
+
+一个 `YYYYMM` 曾经成功同步，并不意味着该月份永久不再产生 Sync Task。
+
+例如：
+
+```text
+2026/202604
+```
+
+在第一次同步完成后，如果未来又通过 V1 上传了该月份的历史照片：
+
+```text
+Photos/2026/202604/new-photo.jpg
+```
+
+Difference Check 检测到新的差异后，必须再次创建新的 Sync Task。
 
 因此：
 
-> **V2 只有在 V1 没有活动 Upload Session，并且 V1 Worker 没有待处理或正在处理的照片任务时，才能开始实际同步。**
-
-最终判断目标是：
-
 ```text
-V1 Activity = 0
+archive_month
 ```
 
-而不是简单判断：
+不得作为 `photo_sync_tasks` 的唯一键。
 
-```text
-upload_sessions = 0
-```
+同一个 `YYYYMM` 可以存在多个历史 Sync Task，每条记录分别代表一次实际同步执行。
 
 ---
 
-## 5.3 V1 忙碌时 V2 的行为
+# 11. Month State
+
+Month State 用于描述某个 `YYYYMM` 在特定时间点所处的运行状态。
+
+与 Sync Task 不同，Month State 是**状态历史记录**，而不是一个只保存当前状态的单行对象。
+
+同一个 `YYYYMM` 可以存在多条 Month State 记录。
 
 例如：
 
 ```text
-V1：
-正在处理 202608 的 1000 张照片
-
-V2：
-发现 202605、202608 有待同步数据
+202604
+NORMAL
+ABNORMAL
+NORMAL
+ABNORMAL
 ```
 
-V2 可以：
+上述记录分别代表该月份在不同时间发生的状态变化。
+
+任何业务逻辑需要获取某个 `YYYYMM` 当前状态时，都必须按照该月份的记录创建时间或状态发生时间获取最新的一条记录，并以该记录的 `state` 作为当前状态。
+
+因此：
 
 ```text
-创建 Sync Task
+archive_month
 ```
 
-或者保留已有：
+**不得作为 `photo_sync_month_states` 的唯一键。**
+
+Month State 推荐状态：
 
 ```text
-PENDING
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
 ```
 
-任务。
+其中：
 
-但不能执行：
-
-```text
-rsync
-```
-
-必须等待：
-
-```text
-V1 Activity = 0
-```
-
-之后才能进入 Sync Phase。
+- `NORMAL`：该月份当前未处于异常隔离状态，可以正常参与自动同步和 Cleanup 判断。
+- `ABNORMAL`：该月份已达到连续失败隔离条件，禁止自动同步和 Cleanup。
+- `RETRY_REQUESTED`：管理员已经通过 WebUI 请求恢复该月份的自动同步资格。
 
 ---
 
-# 6. Sync Task 模型
+# 12. Month State 状态历史规则
 
-## 6.1 Task 与月份的关系
+Month State 必须采用追加式历史记录模型。
 
-一个 Sync Task 对应：
+当 Month State 发生变化时，不得修改历史记录，而必须创建新的记录。
+
+例如：
 
 ```text
-一次实际的某个 YYYYMM 目录同步操作
+202604
+2026-08-01 10:00:00 → NORMAL
+2026-08-02 10:00:00 → ABNORMAL
+2026-08-03 09:00:00 → RETRY_REQUESTED
+2026-08-03 10:30:00 → NORMAL
+2026-08-20 14:00:00 → ABNORMAL
+```
+
+此时数据库中必须保留上述全部记录。
+
+当前状态为：
+
+```text
+ABNORMAL
+```
+
+因为最新一条 Month State 记录为 `ABNORMAL`。
+
+因此，后续业务不应通过修改历史 `ABNORMAL` 记录的方式表示恢复，而应新增一条新的状态记录。
+
+---
+
+# 13. Month State 的创建规则
+
+以下情况必须创建新的 Month State 记录：
+
+1. 系统首次为某个 `YYYYMM` 建立状态；
+2. 月份达到连续失败阈值并进入 `ABNORMAL`；
+3. 管理员执行 Retry；
+4. Retry 后月份恢复为 `NORMAL`；
+5. 其他导致 Month State 发生变化的明确状态转换。
+
+如果某次 Sync Task 失败但尚未达到 ABNORMAL 条件，则不要求仅因为 Task 失败而创建新的 Month State 记录。
+
+例如：
+
+```text
+Month State = NORMAL
+Task = FAILED
+consecutive_failed_count = 1
+```
+
+如果月份仍然属于正常自动处理状态，则 Month State 可以继续保持最新状态为 `NORMAL`。
+
+---
+
+# 14. 获取当前 Month State
+
+任何需要判断某个 `YYYYMM` 当前状态的业务逻辑，都必须使用以下语义：
+
+```text
+查询 archive_month = YYYYMM
+按照最新状态记录排序
+获取第一条记录
+将该记录作为当前 Month State
 ```
 
 例如：
 
 ```text
-Task 1001
+SELECT *
+FROM photo_sync_month_states
+WHERE archive_month = '202604'
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+```
+
+实际 SQL 以最终数据库实现为准。
+
+如果某个 `YYYYMM` 不存在任何 Month State 记录，则按照系统初始化规则视为 `NORMAL`，或者在首次发现该月份时创建一条 `NORMAL` 记录。实现必须统一采用其中一种方式，不得在不同业务流程中使用不同解释。
+
+推荐在首次发现月份时创建：
+
+```text
 archive_month = 202604
-
-Task 1002
-archive_month = 202608
+state = NORMAL
 ```
 
-同一个月份可以拥有多个 Task：
-
-```text
-Task 1001 → 202604 → SUCCESS
-Task 1058 → 202604 → FAILED
-Task 1092 → 202604 → SUCCESS
-```
-
-这些记录全部保留。
+这样数据库中始终具有明确的状态历史起点。
 
 ---
 
-## 6.2 不允许使用 YYYYMM 作为唯一键
+# 15. Sync Batch
 
-以下设计禁止：
+Batch 表示某一个 Cycle 中 Difference Check 发现的待同步月份集合。
 
-```text
-UNIQUE(archive_month)
-```
-
-因为旧月份可以再次出现新照片。
-
-例如：
+例如本轮 Difference Check 发现：
 
 ```text
-2026-08-10
-客户端上传一张 EXIF 为 2026-04-05 的照片
+202604
+202606
+202608
 ```
 
-V1：
+则创建一个 Batch：
 
 ```text
-Photos/2026/202604/new.jpg
+Batch #202609030001
 ```
 
-如果 `202604` 之前已经同步过，V2 仍然必须创建新的同步任务。
+并关联三个 Sync Task：
+
+```text
+Task #1 → 202604
+Task #2 → 202606
+Task #3 → 202608
+```
+
+Batch 创建后，其任务集合应保持不变。
+
+本轮新增的文件不会自动追加到已经创建的 Batch。
+
+如果下一轮 Difference Check 再次发现差异，则创建新的 Batch 和新的 Sync Task。
 
 ---
 
-# 7. Sync Task 状态
+# 16. ABNORMAL 月份过滤
 
-V2 建议使用以下状态：
+Difference Check 发现存在差异后，V2 必须获取该月份最新的 Month State 记录。
+
+如果最新状态为：
+
+```text
+ABNORMAL
+```
+
+则该月份不得进入新的 Sync Batch。
+
+如果最新状态为：
+
+```text
+RETRY_REQUESTED
+```
+
+则允许该月份重新进入同步流程。
+
+如果最新状态为：
+
+```text
+NORMAL
+```
+
+则按照正常规则处理。
+
+ABNORMAL 月份可以继续存在于 R5S `Photos/` 中，但必须保持自动处理隔离状态。
+
+---
+
+# 17. Sync Task
+
+Sync Task 表示一次针对单个 `YYYYMM` 的实际同步执行。
+
+Sync Task 状态：
 
 ```text
 PENDING
@@ -455,1331 +504,827 @@ SUCCESS
 FAILED
 ```
 
-## 7.1 PENDING
-
-表示：
-
-> 该月份存在待同步内容，但尚未执行同步。
-
-可能原因：
-
-- V1 当前仍然忙碌。
-- NAS 暂时不可用。
-- 前一个同步任务尚未完成。
-- Worker 尚未调度该任务。
-
----
-
-## 7.2 RUNNING
-
-表示：
-
-> 当前正在执行该月份目录的 rsync。
-
----
-
-## 7.3 SUCCESS
-
-表示：
-
-> 该次月份目录同步已经成功完成。
-
-`completed_at` 记录本次成功完成时间。
-
----
-
-## 7.4 FAILED
-
-表示：
-
-> 本次月份目录同步失败。
-
-必须记录失败原因以及 rsync exit code。
-
-失败任务允许后续重新同步。
-
----
-
-# 8. Sync Task 数据库设计
-
-V2 新增：
+推荐状态转换：
 
 ```text
-photo_sync_tasks
+PENDING
+   │
+   ▼
+RUNNING
+   │
+   ├── SUCCESS
+   │
+   └── FAILED
 ```
+
+每执行一次实际同步，都必须创建独立的 Sync Task。
+
+不得通过修改旧 Task 的状态来表示重试。
+
+例如：
+
+```text
+第一次执行：
+Task #101 → FAILED
+
+第二次执行：
+Task #102 → SUCCESS
+```
+
+而不是：
+
+```text
+Task #101：
+FAILED → RUNNING → SUCCESS
+```
+
+因此 `photo_sync_tasks` 不需要 `attempt_count` 作为重试次数语义。
+
+---
+
+# 18. Sync Task 执行规则
+
+Batch 中的 Sync Task 按顺序执行。
+
+单个 Task 执行时：
+
+1. 状态由 `PENDING` 修改为 `RUNNING`；
+2. 执行对应 `YYYYMM` 目录的 rsync；
+3. 记录命令、开始时间、结束时间、退出码及错误信息；
+4. rsync 成功则状态修改为 `SUCCESS`；
+5. rsync 失败或发生未捕获异常则状态修改为 `FAILED`。
+
+单个 Task 失败后，不得删除或修改 NAS 上已经存在的数据。
+
+同时，该失败只影响当前 `YYYYMM` 的同步结果，不得直接将其他月份标记为失败。
+
+---
+
+# 19. Rsync 安全要求
+
+V2 使用 R5S → NAS 的单向同步模型。
+
+方向固定为：
+
+```text
+R5S → NAS
+```
+
+V2 禁止使用：
+
+```bash
+rsync --delete
+```
+
+或任何可能根据 R5S 状态删除 NAS 文件的等效操作。
+
+R5S 上文件的删除只由 V2 Cleanup 阶段执行。
+
+NAS 是正式照片存储位置，因此同步过程中不得因为 R5S 文件缺失而删除 NAS 上的对应文件。
+
+---
+
+# 20. 同步成功判定
+
+V2 正常同步不要求每次都对 NAS 上的全部照片重新执行 SHA-256 校验。
+
+Sync Task 的成功判定主要依据 rsync 的执行结果。
+
+至少应记录：
+
+- rsync exit code；
+- stdout；
+- stderr；
+- 开始时间；
+- 完成时间；
+- 同步源目录；
+- 同步目标目录；
+- 同步结果。
+
+正常情况下，rsync exit code 为 `0` 时，Task 标记为 `SUCCESS`。
+
+如果 rsync 返回非零退出码，则 Task 标记为 `FAILED`。
+
+---
+
+# 21. 连续失败与 ABNORMAL
+
+V2 必须对单个 `YYYYMM` 的连续同步失败进行隔离。
+
+默认检查最近：
+
+```text
+3
+```
+
+个实际 Sync Task。
+
+该数量应可配置。
+
+例如某月份历史执行记录为：
+
+```text
+SUCCESS
+FAILED
+SUCCESS
+FAILED
+FAILED
+FAILED
+```
+
+则只检查最近三个实际执行：
+
+```text
+FAILED
+FAILED
+FAILED
+```
+
+因此该月份进入：
+
+```text
+ABNORMAL
+```
+
+历史累计失败次数不参与 ABNORMAL 判断。
+
+---
+
+# 22. ABNORMAL 状态的产生
+
+当某个 `YYYYMM` 达到连续失败阈值时：
+
+1. 当前 Sync Task 保持 `FAILED`；
+2. 计算该月份最近 N 个实际 Sync Task；
+3. 如果最近 N 个 Task 全部为 `FAILED`，则该月份进入 `ABNORMAL`；
+4. 创建一条新的 Month State 历史记录；
+5. 新记录的 `state` 为 `ABNORMAL`；
+6. 记录异常发生时间、连续失败次数及异常原因。
+
+例如：
+
+```text
+Task #101 → FAILED
+Task #102 → FAILED
+Task #103 → FAILED
+```
+
+达到阈值后新增：
+
+```text
+Month State #55
+archive_month = 202608
+state = ABNORMAL
+consecutive_failed_count = 3
+```
+
+历史 Month State 记录不得被覆盖。
+
+---
+
+# 23. ABNORMAL 状态的意义
+
+ABNORMAL 表示：
+
+> 当前 `YYYYMM` 已达到连续失败隔离阈值，V2 自动同步流程不得继续处理该月份，必须等待人工确认。
+
+进入 ABNORMAL 后：
+
+- 不得自动创建新的 Sync Task；
+- 不得加入新的 Sync Batch；
+- 不得执行 Cleanup 删除；
+- 必须保留 R5S 上的原始目录；
+- 历史 Sync Task 必须保留；
+- 历史 Month State 必须保留；
+- WebUI 应明确显示异常原因及最近失败记录。
+
+ABNORMAL 是当前月份的运行控制状态，而不是历史同步结果。
+
+---
+
+# 24. WebUI Retry
+
+对于 ABNORMAL 月份，WebUI 必须提供人工 Retry 操作。
+
+管理员执行 Retry 后，不得直接修改原有 ABNORMAL 记录。
+
+系统必须新增一条 Month State 记录：
+
+```text
+ABNORMAL → RETRY_REQUESTED
+```
+
+该记录表示管理员已经明确允许该月份重新进入同步流程。
+
+下一轮 Difference Check 时，如果发现该月份仍然存在差异，则允许其进入新的 Sync Batch。
+
+当新的 Sync Task 开始执行时，该月份已经重新获得自动同步资格。
+
+---
+
+# 25. Retry 成功
+
+如果 Retry 后：
+
+```text
+Task #104 → SUCCESS
+```
+
+则必须新增一条 Month State 记录：
+
+```text
+state = NORMAL
+```
+
+因此状态历史可能为：
+
+```text
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+```
+
+此时最新 Month State 为 `NORMAL`，该月份恢复正常自动同步和 Cleanup 生命周期。
+
+---
+
+# 26. Retry 再次失败
+
+如果 Retry 后新的 Sync Task 失败，则继续按照最近 N 个实际 Sync Task 判断连续失败情况。
+
+例如：
+
+```text
+Task #101 → FAILED
+Task #102 → FAILED
+Task #103 → FAILED
+→ ABNORMAL
+
+管理员 Retry
+
+Task #104 → FAILED
+```
+
+此时应根据系统定义的“连续失败计数重置规则”计算新的连续失败次数。
+
+推荐规则为：
+
+> 一次人工 Retry 表示一次新的故障处理周期。Retry 请求后开始的新同步执行，应重新计算该故障周期的连续失败次数。
+
+因此：
+
+```text
+Task #104 → FAILED
+consecutive_failed_count = 1
+Month State = NORMAL
+```
+
+只有 Retry 后重新连续失败达到阈值，才再次创建新的：
+
+```text
+ABNORMAL
+```
+
+Month State 历史记录。
+
+这样可以明确区分不同故障周期，避免历史故障与人工修复后的新故障混合计算。
+
+---
+
+# 27. Cleanup
+
+Cleanup 是每一个满足以下三个前置条件的 V2 Cycle 的固定处理阶段：
+
+```text
+NAS Alive = PASS
+V1 Activity = IDLE
+NAS Ready = PASS
+```
+
+Cleanup 不要求本轮必须存在 Sync Batch。
+
+Cleanup 不要求本轮必须存在 Sync Task。
+
+Cleanup 不要求本轮 Sync Task 全部 SUCCESS。
+
+Cleanup 也不因为其他 `YYYYMM` 的 Sync Task 失败而整体跳过。
+
+因此，即使某一轮没有任何新增照片：
+
+```text
+Difference Check
+    ↓
+无差异
+    ↓
+无 Sync Task
+    ↓
+Cleanup Check
+```
+
+仍然必须执行 Cleanup。
+
+这样可以确保长期没有新增照片的历史月份仍然能够按照保留策略最终被清理。
+
+---
+
+# 28. Cleanup 检查范围
+
+Cleanup 必须扫描 R5S 正式照片目录下的所有年月目录：
+
+```text
+Photos/YYYY/YYYYMM/
+```
+
+Cleanup 不仅检查本轮 Sync Batch 中的月份。
+
+例如：
+
+```text
+本轮 Batch：
+202608
+
+R5S 当前存在：
+202604
+202605
+202606
+202607
+202608
+```
+
+Cleanup 必须检查上述所有月份。
+
+---
+
+# 29. Cleanup 当前 Month State 判断
+
+Cleanup 检查某个 `YYYYMM` 时，必须首先获取该月份最新的一条 Month State 记录。
+
+如果最新状态为：
+
+```text
+ABNORMAL
+```
+
+则该月份不得删除。
+
+如果最新状态为：
+
+```text
+NORMAL
+```
+
+则继续进行删除资格判断。
+
+如果最新状态为：
+
+```text
+RETRY_REQUESTED
+```
+
+则视为该月份当前处于恢复处理阶段，不得删除。
+
+因此，只有当前 Month State 为 `NORMAL` 时，月份才具备进入后续 Cleanup 判断的资格。
+
+---
+
+# 30. Cleanup 删除条件
+
+一个 `YYYYMM` 只有同时满足以下全部条件时，才允许删除：
+
+### 30.1 当前 Month State 为 NORMAL
+
+当前 Month State 必须为：
+
+```text
+NORMAL
+```
+
+任何：
+
+```text
+ABNORMAL
+RETRY_REQUESTED
+```
+
+状态均不得删除。
+
+---
+
+### 30.2 存在历史 Sync Task
+
+如果该月份从未执行过同步，则不得删除。
+
+即：
+
+```text
+无 Sync Task → 保留
+```
+
+---
+
+### 30.3 最近一次 Sync Task 必须 SUCCESS
+
+获取该月份最新的一条 Sync Task。
+
+如果：
+
+```text
+latest_task.status != SUCCESS
+```
+
+则保留。
+
+例如：
+
+```text
+Task #101 → SUCCESS
+Task #102 → FAILED
+```
+
+最新 Task 为 FAILED，因此不得删除。
+
+历史上曾经 SUCCESS 不能覆盖最近一次 FAILED。
+
+---
+
+### 30.4 最新成功同步时间达到保留周期
+
+对于该月份最新一次 `SUCCESS` Sync Task，使用其完成时间作为该月份最近一次成功同步时间。
+
+如果：
+
+```text
+current_time - latest_success.completed_at
+    >= synced_retention_days
+```
+
+则满足保留周期条件。
+
+否则继续保留。
+
+---
+
+# 31. Cleanup 判断示例
+
+假设：
+
+```text
+synced_retention_days = 90
+```
+
+当前日期为：
+
+```text
+2026-09-03
+```
+
+某月份：
+
+```text
+202604
+
+Latest Sync Task:
+SUCCESS
+
+completed_at:
+2026-05-01 10:00:00
+
+Latest Month State:
+NORMAL
+```
+
+由于最新成功同步已经超过 90 天，并且该月份没有异常状态，因此允许删除：
+
+```text
+Photos/2026/202604/
+```
+
+而：
+
+```text
+202608
+
+Latest Sync Task:
+SUCCESS
+
+completed_at:
+2026-08-25 10:00:00
+
+Latest Month State:
+NORMAL
+```
+
+虽然同步成功，但未达到 90 天，因此保留。
+
+如果：
+
+```text
+202607
+
+Latest Sync Task:
+FAILED
+
+Latest Month State:
+NORMAL
+```
+
+即使历史上曾经存在 SUCCESS，也不得删除，因为最近一次同步失败。
+
+---
+
+# 32. Cleanup 与同步失败的关系
+
+同步失败不会导致整个 Cleanup 阶段跳过。
+
+例如本轮：
+
+```text
+202604 → SUCCESS
+202605 → FAILED
+202606 → SUCCESS
+```
+
+Cleanup 仍然检查所有月份。
+
+对于：
+
+```text
+202604
+```
+
+如果满足删除条件，则可以删除。
+
+对于：
+
+```text
+202605
+```
+
+由于最新 Task 为 FAILED，因此不得删除。
+
+对于：
+
+```text
+202606
+```
+
+如果满足删除条件，则可以删除。
+
+因此 Sync Task 的失败只影响对应月份，不影响其他月份的 Cleanup。
+
+---
+
+# 33. Cleanup 与 NAS 检查的关系
+
+本轮正式处理阶段开始前已经完成：
+
+```text
+NAS Alive Check
+NAS Ready Check
+```
+
+只要这两个检查均成功，本轮即可进入正式处理阶段。
+
+Cleanup 阶段不再重复执行 NAS Alive Check 或 NAS Ready Check。
+
+Cleanup 的删除对象是 R5S 本地：
+
+```text
+Photos/YYYY/YYYYMM/
+```
+
+删除操作不会修改 NAS 数据。
+
+因此无需在 Cleanup 前再次进行 NAS 状态检查。
+
+---
+
+# 34. Cleanup 删除操作
+
+删除必须以 `YYYYMM` 目录为最小操作单位。
+
+例如：
+
+```text
+Photos/2026/202604/
+```
+
+满足全部删除条件后，删除整个：
+
+```text
+202604/
+```
+
+目录。
+
+删除操作必须具备以下保护：
+
+1. 删除目标必须位于配置的 Photo Root 下；
+2. 删除目标必须符合 `YYYY/YYYYMM` 目录结构；
+3. 不允许删除 Photo Root 本身；
+4. 不允许删除年份目录；
+5. 不允许删除结构之外的任意目录；
+6. 删除操作必须记录审计日志；
+7. 删除失败必须记录错误，但不得影响其他月份。
+
+---
+
+# 35. V2 数据模型
+
+V2 使用三个核心数据对象：
+
+```text
+photo_sync_batches
+photo_sync_tasks
+photo_sync_month_states
+```
+
+其职责分别为：
+
+| 数据对象    | 职责                                      |
+| ----------- | ----------------------------------------- |
+| Batch       | 记录一次 Cycle 中发现并计划执行的任务集合 |
+| Sync Task   | 记录一次具体 YYYYMM 同步执行              |
+| Month State | 记录 YYYYMM 的状态变化历史                |
+
+三者必须保持语义分离。
+
+---
+
+# 36. photo_sync_batches
 
 建议字段：
 
-| 字段             | 类型     | 说明                                 |
-| ---------------- | -------- | ------------------------------------ |
-| id               | INTEGER  | 主键                                 |
-| archive_month    | TEXT     | 同步月份，格式 `YYYYMM`              |
-| status           | TEXT     | PENDING / RUNNING / SUCCESS / FAILED |
-| started_at       | DATETIME | 本次同步开始时间                     |
-| completed_at     | DATETIME | 本次同步结束时间                     |
-| duration_seconds | INTEGER  | 同步耗时                             |
-| file_count       | INTEGER  | 本次同步处理/传输的文件数            |
-| total_size_bytes | INTEGER  | 本次同步文件总大小                   |
-| rsync_exit_code  | INTEGER  | rsync 返回码                         |
-| attempt_count    | INTEGER  | 尝试次数                             |
-| error_message    | TEXT     | 最后一次错误信息                     |
-| created_at       | DATETIME | 创建时间                             |
-| updated_at       | DATETIME | 更新时间                             |
+| 字段          | 类型     | 说明           |
+| ------------- | -------- | -------------- |
+| id            | INTEGER  | Batch 主键     |
+| started_at    | DATETIME | Batch 创建时间 |
+| completed_at  | DATETIME | Batch 完成时间 |
+| status        | TEXT     | Batch 状态     |
+| task_count    | INTEGER  | Task 数量      |
+| success_count | INTEGER  | 成功数量       |
+| failed_count  | INTEGER  | 失败数量       |
+| created_at    | DATETIME | 创建时间       |
+| updated_at    | DATETIME | 更新时间       |
 
-所有时间字段使用：
+Batch 仅用于描述一次同步批次及其结果，不承担月份异常隔离功能。
+
+---
+
+# 37. photo_sync_tasks
+
+建议字段：
+
+| 字段          | 类型     | 说明                           |
+| ------------- | -------- | ------------------------------ |
+| id            | INTEGER  | Task 主键                      |
+| batch_id      | INTEGER  | 所属 Batch                     |
+| archive_month | TEXT     | `YYYYMM`                       |
+| source_path   | TEXT     | R5S 源目录                     |
+| target_path   | TEXT     | NAS 目标目录                   |
+| status        | TEXT     | PENDING/RUNNING/SUCCESS/FAILED |
+| started_at    | DATETIME | 开始时间                       |
+| completed_at  | DATETIME | 完成时间                       |
+| exit_code     | INTEGER  | rsync exit code                |
+| stdout        | TEXT     | rsync 输出                     |
+| stderr        | TEXT     | rsync 错误输出                 |
+| error_message | TEXT     | 异常信息                       |
+| created_at    | DATETIME | 创建时间                       |
+| updated_at    | DATETIME | 更新时间                       |
+
+关键约束：
+
+```text
+archive_month 不得 UNIQUE
+```
+
+因为同一个月份允许存在多个历史 Sync Task。
+
+---
+
+# 38. photo_sync_month_states
+
+`photo_sync_month_states` 是 Month State 历史表。
+
+该表记录每个 `YYYYMM` 的状态变化历史，不保存一个永久覆盖的“当前状态”。
+
+建议字段：
+
+| 字段                     | 类型     | 说明                            |
+| ------------------------ | -------- | ------------------------------- |
+| id                       | INTEGER  | 状态记录主键                    |
+| archive_month            | TEXT     | `YYYYMM`                        |
+| state                    | TEXT     | NORMAL/ABNORMAL/RETRY_REQUESTED |
+| consecutive_failed_count | INTEGER  | 当前连续失败次数                |
+| abnormal_at              | DATETIME | 本次进入 ABNORMAL 的时间        |
+| retry_requested_at       | DATETIME | 本次 Retry 请求时间             |
+| retry_requested_by       | TEXT     | 执行 Retry 的用户               |
+| reason                   | TEXT     | 本次状态记录的原因              |
+| created_at               | DATETIME | 状态记录创建时间                |
+| updated_at               | DATETIME | 状态记录更新时间                |
+
+关键约束：
+
+```text
+archive_month 不得 UNIQUE
+```
+
+同一个 `YYYYMM` 可以存在多条历史记录。
+
+例如：
+
+```text
+id  archive_month  state
+1   202604         NORMAL
+2   202604         ABNORMAL
+3   202604         RETRY_REQUESTED
+4   202604         NORMAL
+5   202604         ABNORMAL
+```
+
+当前状态通过：
+
+```text
+archive_month = 202604
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+```
+
+获得。
+
+因此：
+
+```text
+当前状态 = 最新一条 Month State 记录
+```
+
+而不是：
+
+```text
+当前状态 = 某一条固定数据库记录
+```
+
+---
+
+# 39. Month State 历史完整性
+
+Month State 采用追加式记录模型后，任何历史状态记录都不得因为后续恢复而被修改或删除。
+
+例如：
+
+```text
+202604
+    ↓
+NORMAL
+    ↓
+ABNORMAL
+    ↓
+RETRY_REQUESTED
+    ↓
+NORMAL
+    ↓
+ABNORMAL
+```
+
+数据库必须保留完整历史。
+
+这样可以回答以下问题：
+
+- 该月份曾经发生过几次异常？
+- 每次异常发生在什么时候？
+- 每次异常持续多久？
+- 管理员何时执行了 Retry？
+- Retry 后是否恢复正常？
+- 后续是否再次发生异常？
+
+历史 Month State 与历史 Sync Task 一样，都属于系统审计数据。
+
+---
+
+# 40. 时间规范
+
+V2 所有数据库时间字段统一使用上海时区语义。
+
+数据库时间格式统一为：
 
 ```text
 YYYY-MM-DD HH:MM:SS
 ```
 
----
-
-# 9. Sync Task 的文件统计
-
-V2 不建立“每张照片一个 Sync Task”的模型。
-
 例如：
 
 ```text
-202604/
-├── 001.jpg
-├── 002.jpg
-├── ...
-└── 500.jpg
+2026-09-03 20:15:30
 ```
 
-只产生一个：
-
-```text
-photo_sync_tasks
-archive_month = 202604
-```
-
-rsync 负责目录内部的增量判断。
-
-Task 层记录：
-
-```text
-file_count
-total_size_bytes
-duration_seconds
-```
-
-用于审计和统计。
-
-不需要为每个照片建立同步数据库记录。
-
----
-
-# 10. 同步目录
-
-R5S：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-NAS：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-例如：
-
-```text
-R5S:
-Photos/2026/202604/
-
-NAS:
-Photos/2026/202604/
-```
-
-必须保持相同的目录结构。
-
----
-
-# 11. rsync 同步策略
-
-V2 使用：
-
-```text
-R5S → rsync over SSH → NAS
-```
-
-而不是 rsyncd。
-
-V2 第一版默认：
-
-```text
-SSH
-+
-rsync
-```
-
-如果未来实际部署中 SSH 方式存在问题，再考虑 rsyncd 作为替代方案。
-
----
-
-## 11.1 同步粒度
-
-一次 Task 对应一次月份目录级 rsync：
-
-```text
-Photos/2026/202604/
-```
-
-而不是：
-
-```text
-photo1 → rsync
-photo2 → rsync
-photo3 → rsync
-```
-
-因此：
-
-```text
-一个月份 = 一个 Sync Task = 一次目录级 rsync
-```
-
-rsync 自身负责判断：
-
-- 新文件；
-- 已存在文件；
-- 需要更新的文件。
-
----
-
-## 11.2 禁止 `--delete`
-
-V2 正常同步禁止使用：
-
-```text
-rsync --delete
-```
-
-原因：
-
-R5S 是临时存储。
-
-当 R5S Cleanup 删除：
-
-```text
-Photos/2026/202604/
-```
-
-时，不能导致 NAS：
-
-```text
-Photos/2026/202604/
-```
-
-被删除。
-
-因此：
-
-```text
-R5S 删除
-    ↓
-不会影响 NAS
-```
-
-NAS 数据只允许通过明确的 NAS 管理流程删除，不允许被 R5S Cleanup 间接删除。
-
----
-
-## 11.3 NAS SHA-256 校验
-
-V2 不执行 NAS 端 SHA-256 校验。
-
-不执行：
-
-```text
-R5S SHA-256
-    ↓
-SSH 到 NAS
-    ↓
-NAS 重新计算 SHA-256
-    ↓
-逐文件比较
-```
-
-V2 的同步成功依据主要使用：
-
-```text
-rsync exit code
-```
-
-如果未来需要 NAS 数据完整性检查，应设计独立的 NAS Integrity Audit，而不是作为普通 Sync Worker 的组成部分。
-
----
-
-# 12. NAS Ready Check
-
-V2 Worker 启动后以及执行 Cleanup 前，都必须检查 NAS 是否 Ready。
-
-检查分为两层。
-
----
-
-## 12.1 第一层：SSH TCP Port Check
-
-R5S 首先检查 NAS SSH 端口是否可连接。
-
-例如：
-
-```text
-NAS:22
-```
-
-使用短超时进行 TCP Connect。
-
-这一阶段只判断：
-
-```text
-SSH Port Open
-```
-
-不直接执行 SSH 命令。
-
-目的：
-
-> 避免 NAS SSH 服务异常时，直接 SSH 导致 Worker 长时间阻塞。
-
----
-
-## 12.2 第二层：NAS Ready Check
-
-SSH 端口可用后，R5S 使用专用同步账户执行 NAS Ready Check Shell。
-
-Ready Check 至少检查：
-
-1. NAS 目标磁盘已经挂载。
-2. 文件系统处于可写状态。
-3. 可用空间满足配置要求。
-4. NAS 目标目录存在。
-5. 同步用户对目标目录具有写权限。
-6. NAS 已安装 rsync。
-7. 必要的文件系统和存储条件正常。
-
-建议脚本：
-
-```text
-/usr/local/sbin/photo-gateway-nas-ready.sh
-```
-
----
-
-## 12.3 Ready Check 返回值
-
-建议：
-
-```text
-0 = READY
-1 = NOT_READY
-2 = CONFIG_ERROR
-```
-
-Worker 必须根据返回值决定后续动作。
-
----
-
-# 13. Sync Worker 启动流程
-
-Worker 启动后：
-
-```text
-1. 加载配置
-2. 初始化数据库
-3. 检查 NAS SSH Port
-4. 执行 NAS Ready Check
-5. 检查 V1 Activity
-6. 扫描 Photos/YYYY/YYYYMM
-7. 创建/维护待同步任务
-8. 执行 Sync Phase
-9. 判断 Sync Phase 是否完成
-10. 满足条件后进入 Cleanup Phase
-11. 返回 IDLE
-```
-
-Worker 应作为系统服务启动。
-
----
-
-# 14. 待同步月份发现
-
-V2 Worker 需要扫描：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-发现需要同步的月份目录。
-
-需要特别处理以下情况：
-
-### 情况 A：新月份
-
-例如：
-
-```text
-Photos/2026/202608/
-```
-
-此前没有同步记录。
-
-创建：
-
-```text
-PENDING
-```
-
-Task。
-
-### 情况 B：历史月份再次出现新照片
-
-例如：
-
-```text
-202604
-```
-
-此前已经：
-
-```text
-SUCCESS
-```
-
-但 V1 又向：
-
-```text
-Photos/2026/202604/
-```
-
-写入新照片。
-
-V2 必须产生新的同步任务，而不是复用或覆盖旧 Task。
-
-### 情况 C：上一次同步失败
-
-例如：
-
-```text
-202604
-FAILED
-```
-
-后续 Worker 应允许重新执行。
-
----
-
-# 15. Sync Phase
-
-Sync Phase 是一个明确的阶段。
-
-其职责只有：
-
-> 将所有当前需要同步的月份目录同步到 NAS。
-
-例如：
-
-```text
-PENDING:
-202604
-202607
-202608
-```
-
-Worker：
-
-```text
-202604 → rsync → SUCCESS
-202607 → rsync → SUCCESS
-202608 → rsync → FAILED
-```
-
-此时不能直接进入 Cleanup。
-
----
-
-# 16. Sync Phase 完成条件
-
-只有满足以下条件，Sync Phase 才能标记为完成：
-
-> **当前不存在需要继续处理的待同步任务。**
-
-如果仍存在：
-
-```text
-PENDING
-```
-
-或者需要重试的：
-
-```text
-FAILED
-```
-
-任务，则 Sync Phase 尚未完成。
-
-因此：
-
-```text
-存在待同步任务
-        ↓
-不能 Cleanup
-```
-
-这是 V2 的硬性安全规则。
-
----
-
-# 17. 同步失败与重试
-
-rsync 返回非 0 时：
-
-```text
-Task.status = FAILED
-```
-
-并记录：
-
-```text
-rsync_exit_code
-error_message
-attempt_count
-completed_at
-```
-
-下一次 Worker 可以重新调度该月份。
-
-重新执行时：
-
-```text
-FAILED
-  ↓
-RUNNING
-  ↓
-SUCCESS
-```
-
-或者：
-
-```text
-FAILED
-  ↓
-RUNNING
-  ↓
-FAILED
-```
-
-每次实际执行均产生独立的 Sync Task 记录。
-
-历史记录不得覆盖。
-
----
-
-# 18. 首次历史数据同步
-
-V2 首次部署时，R5S 可能已经存在大量历史照片，例如：
-
-```text
-> 1 TB
-```
-
-首次同步仍然按照月份目录进行。
-
-例如：
-
-```text
-Photos/
-├── 2024/
-│   ├── 202401/
-│   ├── 202402/
-│   └── ...
-├── 2025/
-│   ├── 202501/
-│   └── ...
-└── 2026/
-    ├── 202601/
-    └── ...
-```
-
-Worker 根据月份目录建立同步任务。
-
-不创建：
-
-```text
-1 个文件 = 1 个 Task
-```
-
-而是：
-
-```text
-1 个月份目录 = 1 个 Task
-```
-
-首次同步可以持续多个 Worker 周期完成。
-
----
-
-# 19. Cleanup Phase
-
-Cleanup 是独立于 Sync Phase 的第二阶段。
-
-流程必须是：
-
-```text
-Sync Phase
-    ↓
-确认 Sync Phase 完成
-    ↓
-Cleanup Phase
-```
-
-禁止：
-
-```text
-同步一个月份
-    ↓
-马上删除这个月份
-    ↓
-再同步下一个月份
-```
-
-同步和删除必须分离。
-
----
-
-# 20. Cleanup 的第一道安全条件
-
-Cleanup 开始前必须确认：
-
-> **Sync Phase 已明确完成，并且不存在待同步任务。**
-
-如果仍然存在：
-
-```text
-PENDING
-```
-
-或者：
-
-```text
-FAILED
-```
-
-等尚未完成的同步任务：
-
-```text
-禁止 Cleanup
-```
-
-这样可以避免：
-
-```text
-某个月份尚未成功同步
-        ↓
-Cleanup 却开始删除
-        ↓
-R5S 数据丢失
-```
-
----
-
-# 21. Cleanup 的月份判断
-
-Cleanup 对每一个：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-目录独立判断。
-
-例如：
-
-```text
-Photos/2026/202604/
-```
-
-首先查询：
-
-```text
-photo_sync_tasks
-```
-
-中：
-
-```text
-archive_month = '202604'
-```
-
-的任务记录。
-
-然后按照任务创建/执行时间确定**最新的一条 Sync Task**。
-
----
-
-# 22. Cleanup 最核心的判断规则
-
-这是 V2 最重要的安全规则之一：
-
-> **判断一个月份目录是否可以删除，只能依据该月份最新一条 Sync Task 的最终状态。**
-
-不能使用：
-
-> “历史上存在一条 SUCCESS 就可以删除”。
-
-也不能使用：
-
-> “最近一次 SUCCESS 的时间满足 retention 就可以删除”。
-
-必须首先取得：
-
-```text
-该 archive_month 最新的一条 Sync Task
-```
-
-然后判断：
-
-```text
-latest_task.status
-```
-
----
-
-# 23. 最新状态不是 SUCCESS：禁止删除
-
-例如：
-
-```text
-202604
-
-Task 1001
-2026-05-01 10:00:00
-SUCCESS
-
-Task 1058
-2026-08-10 09:00:00
-FAILED
-```
-
-虽然存在：
-
-```text
-SUCCESS
-```
-
-但最新任务是：
-
-```text
-FAILED
-```
-
-因此：
-
-```text
-Photos/2026/202604/
-```
-
-**禁止删除。**
-
----
-
-# 24. 最新状态为 SUCCESS：才允许继续判断
-
-例如：
-
-```text
-202604
-
-Task 1001
-SUCCESS
-2026-05-01 10:00:00
-
-Task 1058
-SUCCESS
-2026-08-10 09:00:00
-```
-
-最新任务：
-
-```text
-Task 1058
-status = SUCCESS
-completed_at = 2026-08-10 09:00:00
-```
-
-此时才进入 retention 判断。
-
----
-
-# 25. Cleanup Retention 判断
-
-配置：
-
-```yaml
-sync:
-  cleanup:
-    enabled: true
-    synced_retention_days: 90
-```
-
-Retention 的计算基准为：
-
-> **该月份最新一条 SUCCESS Sync Task 的 `completed_at`。**
-
-计算：
-
-```text
-delete_after =
-    latest_success_task.completed_at
-    + synced_retention_days
-```
-
-只有：
-
-```text
-current_time >= delete_after
-```
-
-才允许继续删除。
-
----
-
-# 26. 成功后再次失败时的特殊情况
-
-例如：
-
-```text
-202604
-
-2026-06-05 12:00:00
-SUCCESS
-
-2026-08-10 12:00:00
-FAILED
-```
-
-最终状态：
-
-```text
-FAILED
-```
-
-因此禁止删除。
-
-即使：
-
-```text
-2026-09-05
-```
-
-已经超过此前 SUCCESS 的 90 天，也不能删除。
-
-必须等待新的同步成功：
-
-```text
-2026-08-11 10:00:00
-SUCCESS
-```
-
-之后 retention 重新从：
-
-```text
-2026-08-11 10:00:00
-```
-
-开始计算。
-
-这意味着：
-
-> **每次新的成功同步都会重新开始该月份目录的 retention 周期。**
-
----
-
-# 27. 没有 Sync Task 记录：禁止删除
-
-如果：
-
-```text
-Photos/2026/202604/
-```
-
-存在，但数据库中：
-
-```text
-archive_month = 202604
-```
-
-完全没有 Sync Task：
-
-```text
-禁止删除
-```
-
-这是绝对安全原则。
-
----
-
-# 28. 最新 Task 为其他非 SUCCESS 状态：禁止删除
-
-以下状态均不能删除：
-
-```text
-PENDING
-RUNNING
-FAILED
-```
-
-只有：
-
-```text
-SUCCESS
-```
-
-才允许继续进行 retention 判断。
-
----
-
-# 29. Cleanup 时必须再次检查 NAS Ready
-
-即使同步阶段已经确认 NAS Ready，Cleanup 阶段也必须重新检查。
-
-原因：
-
-```text
-Sync Phase：
-NAS Ready
-
-        ↓
-
-经过一段时间
-
-        ↓
-
-Cleanup：
-NAS 已掉线
-```
-
-此时必须：
-
-```text
-禁止删除
-```
-
-因此 Cleanup 前必须重新执行：
-
-```text
-SSH Port Check
-+
-NAS Ready Check
-```
-
----
-
-# 30. Cleanup 的完整判断顺序
-
-对于：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-必须严格按照以下逻辑：
-
-```text
-① Cleanup 是否启用？
-        │
-        ├─ 否 → 不删除
-        │
-        ▼
-② Sync Phase 是否已经完成？
-        │
-        ├─ 否 → 不删除
-        │
-        ▼
-③ 当前是否仍存在待同步任务？
-        │
-        ├─ 是 → 不删除
-        │
-        ▼
-④ 查询该 YYYYMM 最新 Sync Task
-        │
-        ├─ 无记录 → 不删除
-        │
-        ▼
-⑤ 最新 Task.status 是否为 SUCCESS？
-        │
-        ├─ 否 → 不删除
-        │
-        ▼
-⑥ 使用最新 SUCCESS Task.completed_at
-   判断 synced_retention_days
-        │
-        ├─ 未到期 → 不删除
-        │
-        ▼
-⑦ 再次检查 NAS Ready
-        │
-        ├─ NOT_READY → 不删除
-        │
-        ▼
-⑧ 删除 Photos/YYYY/YYYYMM/
-```
-
-这是 V2 Cleanup 的正式安全规则。
-
----
-
-# 31. Cleanup 删除粒度
-
-正常情况下，Cleanup 以：
-
-```text
-YYYYMM
-```
-
-目录为删除单位。
-
-例如：
-
-```text
-Photos/2026/202604/
-```
-
-满足删除条件后：
-
-```text
-删除 202604/
-```
-
----
-
-# 32. 严禁删除上级年份目录
-
-删除：
-
-```text
-Photos/2026/202604/
-```
-
-之后，即使：
-
-```text
-Photos/2026/
-```
-
-已经为空，也不得自动删除：
-
-```text
-Photos/2026/
-```
-
-因此：
-
-```text
-允许：
-Photos/2026/202604/
-
-禁止：
-Photos/2026/
-Photos/
-```
-
-V2 Cleanup 不负责删除年份目录和根目录。
-
----
-
-# 33. Cleanup 与 `rsync --delete` 的关系
-
-两者必须完全独立。
-
-R5S：
-
-```text
-Cleanup
-    ↓
-删除 Photos/YYYY/YYYYMM/
-```
-
-不会执行：
-
-```text
-rsync --delete
-```
-
-因此：
-
-```text
-R5S：
-202604 已删除
-
-NAS：
-202604 仍然保留
-```
-
-NAS 是最终正式存储。
-
----
-
-# 34. 磁盘紧张情况下的扩展
-
-正式 V2 的默认 Cleanup 单位为：
-
-```text
-YYYYMM
-```
-
-但配置仍然使用：
-
-```text
-synced_retention_days
-```
-
-而不是：
-
-```text
-synced_retention_months
-```
-
-原因是未来可能存在：
-
-> R5S 磁盘空间紧张，需要更细粒度的清理策略。
-
-例如未来可以扩展为按天判断，而不需要改变整个 retention 配置模型。
-
-V2 第一版不要求实现按天删除，但数据模型和配置不应阻碍未来扩展。
-
----
-
-# 35. Cleanup 操作必须具备安全边界
-
-Cleanup 必须满足以下原则：
-
-1. 没有成功同步记录 → 不删除。
-2. 最新同步状态不是 SUCCESS → 不删除。
-3. retention 未到期 → 不删除。
-4. 当前 Sync Phase 未完成 → 不删除。
-5. 当前仍存在待同步任务 → 不删除。
-6. NAS 当前不是 Ready → 不删除。
-7. 只删除 `YYYYMM` 目录。
-8. 不删除 `YYYY` 上级目录。
-9. 不使用 `rsync --delete`。
-10. 不因为 NAS Ready Check 临时失败而继续删除。
-
----
-
-# 36. V2 与 V1 的数据一致性关系
-
-V1 负责：
-
-```text
-客户端数据
-    ↓
-接收
-    ↓
-去重
-    ↓
-元数据
-    ↓
-归档
-    ↓
-Photos/YYYY/YYYYMM/
-```
-
-V2 负责：
-
-```text
-Photos/YYYY/YYYYMM/
-    ↓
-NAS
-```
-
-因此：
-
-> V2 不参与 V1 的照片处理决策。
-
-V2 不修改：
-
-- EXIF；
-- 归档月份；
-- Photo Asset；
-- Duplicate 判断；
-- User Confirmation；
-- V1 Processing 状态。
-
----
-
-# 37. V2 不应该在 V1 处理过程中同步
-
-例如：
-
-```text
-V1：
-Photo A 正在 PROCESSING
-
-V2：
-发现 Photo A 对应的月份目录已经存在
-```
-
-V2 不应该立即 rsync。
-
-必须等待：
-
-```text
-V1 Activity = 0
-```
-
-之后再执行。
-
-这样保证同步时 V1 不再持续向该目录写入数据。
-
----
-
-# 38. 同步前的数据稳定性
-
-V2 实际开始 rsync 前：
-
-```text
-V1 Activity = 0
-```
-
-因此 V1 当前没有：
-
-```text
-UPLOAD
-PROCESSING
-```
-
-等活动任务。
-
-随后 V2 执行目录级 rsync。
-
-如果新的 V1 上传任务在 Sync Phase 过程中产生，则这些新任务不得被错误地认为已经属于当前同步结果。
-
-下一轮 Sync Worker 应再次扫描目录并建立新的 Sync Task。
-
-因此：
-
-> **V2 不假设一个月份目录永远不会再次发生变化。**
-
-这也是 `photo_sync_tasks` 必须允许同一月份存在多条记录的根本原因。
-
----
-
-# 39. 日志
-
-V2 应记录至少以下日志：
-
-### Worker 生命周期
-
-```text
-Worker started
-Worker stopped
-Worker idle
-```
-
-### NAS
-
-```text
-SSH port check started
-SSH port check failed
-NAS ready check started
-NAS ready check failed
-NAS ready
-```
-
-### V1 Activity
-
-```text
-V1 active
-V1 idle
-Waiting for V1 worker
-```
-
-### Sync Task
-
-```text
-Task created
-Task started
-Task completed
-Task failed
-Task retry
-```
-
-日志至少应包含：
-
-```text
-task_id
-archive_month
-status
-```
-
-方便定位具体月份。
-
-### Cleanup
-
-必须记录：
-
-```text
-archive_month
-latest_task_id
-latest_task_status
-latest_success_completed_at
-retention_days
-delete_after
-cleanup_result
-```
-
-如果拒绝删除，应记录具体原因。
-
-例如：
-
-```text
-Cleanup skipped:
-archive_month=202604
-latest_task_status=FAILED
-```
-
----
-
-# 40. 同步统计
-
-每次 Sync Task 应尽可能记录：
-
-```text
-file_count
-total_size_bytes
-duration_seconds
-```
-
-例如：
-
-```text
-archive_month = 202604
-status = SUCCESS
-started_at = 2026-08-10 09:30:00
-completed_at = 2026-08-10 09:31:12
-duration_seconds = 72
-file_count = 135
-total_size_bytes = 524288000
-```
-
-这些信息用于：
-
-- 同步历史审计；
-- 性能分析；
-- 故障排查；
-- NAS 同步进度观察。
+V2 不使用 UTC ISO-8601 字符串作为数据库业务时间字段。
 
 ---
 
 # 41. V2 配置
 
-V2 配置应至少包含以下内容：
+建议配置结构：
 
 ```yaml
 sync:
@@ -1796,844 +1341,647 @@ sync:
     root: "/mnt/sda1/photo-gateway/Photos"
 
   worker:
-    poll_interval_seconds: 30
+    cycle_interval_seconds: 300
+
+  failure:
+    threshold: 3
 
   cleanup:
     enabled: true
     synced_retention_days: 90
 ```
 
-具体字段名称以最终 Config Spec 为准。
+其中：
+
+| 配置                            | 说明                      |
+| ------------------------------- | ------------------------- |
+| `sync.enabled`                  | 是否启用 V2               |
+| `nas.host`                      | NAS 地址                  |
+| `nas.ssh_port`                  | SSH 端口                  |
+| `nas.ssh_user`                  | NAS 同步账号              |
+| `nas.ssh_key`                   | SSH 私钥                  |
+| `nas.target_root`               | NAS Photo Root            |
+| `source.root`                   | R5S Photo Root            |
+| `worker.cycle_interval_seconds` | Cycle 间隔                |
+| `failure.threshold`             | 连续失败阈值              |
+| `cleanup.enabled`               | 是否启用 Cleanup          |
+| `cleanup.synced_retention_days` | 同步成功后的 R5S 保留时间 |
 
 ---
 
-# 42. SSH 安全要求
+# 42. 日志要求
 
-V2 使用专用 NAS 同步账户。
+V2 必须记录完整的生命周期日志。
 
-不建议：
+至少包括：
 
-```text
-root
-```
+- Worker 启动；
+- Cycle 开始；
+- NAS Alive Check；
+- V1 Activity Check；
+- NAS Ready Check；
+- Difference Check；
+- Batch 创建；
+- Sync Task 创建；
+- Sync Task 开始；
+- rsync 命令执行结果；
+- Sync Task SUCCESS / FAILED；
+- 连续失败计数；
+- Month State 状态变化；
+- ABNORMAL；
+- WebUI Retry；
+- Cleanup Check；
+- Cleanup 删除；
+- Cleanup 删除失败；
+- Cycle 完成。
 
-作为正常同步账户。
-
-SSH 必须使用：
-
-- 独立 SSH Key；
-- Host Key 验证；
-- 固定 NAS 主机；
-- 明确 SSH 端口；
-- 短连接超时。
-
-禁止：
-
-```text
-StrictHostKeyChecking=no
-```
-
-等绕过 Host Key 验证的配置。
-
----
-
-# 43. V2 Worker 异常处理
-
-## 43.1 NAS SSH 不可用
-
-```text
-SSH Port Check
-    ↓
-失败
-```
-
-行为：
-
-```text
-不执行 Sync
-不执行 Cleanup
-等待下一轮
-```
+日志中的路径、任务 ID、Batch ID、archive_month 应保持可关联。
 
 ---
 
-## 43.2 NAS Ready Check 失败
+# 43. WebUI 要求
 
-行为：
+WebUI 至少应能够查看以下内容。
+
+## 43.1 V2 Worker 状态
+
+显示：
 
 ```text
-不执行 Sync
-不执行 Cleanup
-等待下一轮
+Worker Status
+Current Cycle
+Last Cycle
+Next Cycle
+NAS Alive
+V1 Activity
+NAS Ready
+```
+
+## 43.2 Sync Batch
+
+显示：
+
+```text
+Batch ID
+Created At
+Completed At
+Total Tasks
+Success
+Failed
+Status
+```
+
+## 43.3 Sync Task
+
+支持按照以下字段查询历史任务：
+
+```text
+archive_month
+status
+created_at
+batch_id
+```
+
+## 43.4 Month State
+
+Month State 页面应展示状态历史，而不仅仅是当前状态。
+
+至少应显示：
+
+```text
+archive_month
+current state
+consecutive_failed_count
+latest task
+latest success
+abnormal_at
+```
+
+同时应能够查看该月份完整的 Month State 历史，例如：
+
+```text
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+ABNORMAL
+```
+
+对于当前状态为 ABNORMAL 的月份必须提供 Retry 操作。
+
+## 43.5 Cleanup
+
+显示：
+
+```text
+archive_month
+latest sync status
+latest successful sync time
+current month state
+retention status
+cleanup eligibility
 ```
 
 ---
 
-## 43.3 V1 忙碌
+# 44. 异常处理
 
-行为：
+V2 必须保证单个异常不会导致 Worker 进程退出。
 
-```text
-允许创建/维护 PENDING Task
-不执行 rsync
-不执行 Cleanup
-等待 V1 Activity = 0
-```
+典型异常包括：
 
----
-
-## 43.4 rsync 失败
-
-行为：
-
-```text
-Task = FAILED
-记录 exit code
-记录错误
-保留 R5S 数据
-不允许该月份进入 Cleanup
-```
-
----
-
-## 43.5 Worker 在 rsync 中异常退出
-
-重新启动后应根据数据库 Task 状态和实际目录重新判断。
-
-不能因为数据库中存在：
-
-```text
-RUNNING
-```
-
-就直接认为同步成功。
-
-需要重新调度和确认该月份。
-
----
-
-# 44. 数据安全原则
-
-V2 的设计必须遵守：
-
-> **宁可不删除，也不能误删除。**
-
-所有 Cleanup 判断默认采用 Fail Safe：
-
-```text
-无法确认
-    ↓
-禁止删除
-```
-
-包括：
-
-- 数据库查询失败；
-- 无 Sync Task；
-- 最新 Task 无法确定；
-- 最新 Task 非 SUCCESS；
-- 时间字段异常；
+- NAS 不可达；
+- SSH 连接失败；
 - NAS Ready Check 失败；
-- Worker 状态异常；
-- 配置异常。
+- rsync 返回非零状态；
+- rsync 执行异常；
+- SQLite 操作失败；
+- Cleanup 删除失败；
+- 单个月份目录损坏或路径异常。
+
+异常必须：
+
+1. 记录日志；
+2. 更新对应任务或状态；
+3. 保持 Worker 继续运行；
+4. 在下一轮重新从 NAS Alive Check 开始。
 
 ---
 
-# 45. V2 不做 NAS SHA-256
+# 45. 完整 Cycle 规则
 
-V2 明确不包含：
-
-```text
-NAS SHA-256 verification
-```
-
-原因：
-
-1. R5S USB HDD 上执行额外内容校验成本较高。
-2. rsync 已经负责正常的数据传输与校验。
-3. V1 已经建立 Photo Asset 的 SHA-256 信息。
-4. 日常同步没有必要重新扫描 NAS 全部照片计算 SHA-256。
-
-未来如有需要，应设计独立的：
+V2 每轮的完整逻辑定义如下：
 
 ```text
-NAS Integrity Audit
+Cycle Start
+    │
+    ▼
+NAS Alive Check
+    │
+    ├── FAIL
+    │      └── Sleep → Next Cycle
+    │
+    ▼
+V1 Activity Check
+    │
+    ├── BUSY
+    │      └── Sleep → Next Cycle
+    │
+    ▼
+NAS Ready Check
+    │
+    ├── FAIL
+    │      └── Sleep → Next Cycle
+    │
+    ▼
+Difference Check
+    │
+    ▼
+获取各 YYYYMM 最新 Month State
+    │
+    ▼
+过滤 ABNORMAL 月份
+    │
+    ▼
+创建 Batch
+    │
+    ▼
+创建 Sync Tasks
+    │
+    ▼
+顺序执行 Sync Tasks
+    │
+    ├── SUCCESS
+    └── FAILED
+    │
+    ▼
+更新 Month State
+    │
+    ▼
+Cleanup Check
+    │
+    ├── 遍历全部 YYYYMM
+    ├── 获取最新 Month State
+    ├── 检查 Latest Sync Task
+    ├── 检查 Latest SUCCESS
+    ├── 检查 Retention
+    └── 删除符合条件的月份
+    │
+    ▼
+Cycle Complete
+    │
+    ▼
+Sleep
+    │
+    ▼
+Next Cycle
 ```
 
-功能。
+其中：
+
+> **Cleanup 是每轮正式处理阶段的组成部分，而不是 Sync Batch 的成功后置动作。**
 
 ---
 
-# 46. V2 不做全库单 Task 同步
+# 46. 典型场景
 
-以下设计不采用：
+## 46.1 正常同步
 
 ```text
-Task:
-Photos/
+NAS Alive       PASS
+V1              IDLE
+NAS Ready       PASS
+
+Difference:
+202608 有差异
+
+Sync:
+202608 → SUCCESS
+
+Month State:
+NORMAL
+
+Cleanup:
+正常执行
+```
+
+---
+
+## 46.2 本轮没有新增照片
+
+```text
+NAS Alive       PASS
+V1              IDLE
+NAS Ready       PASS
+
+Difference:
+无差异
+
+Sync:
+无 Task
+
+Cleanup:
+正常执行
+```
+
+历史月份仍然会被检查，因此不会因为本轮没有同步任务而阻止历史照片清理。
+
+---
+
+## 46.3 某月份同步失败
+
+本轮：
+
+```text
+202604 → SUCCESS
+202605 → FAILED
+202606 → SUCCESS
+```
+
+Cleanup 仍然执行。
+
+```text
+202604 → 如果满足删除条件 → 删除
+202605 → Latest Task FAILED → 保留
+202606 → 如果满足删除条件 → 删除
+```
+
+单个月份失败不会阻止其他月份 Cleanup。
+
+---
+
+## 46.4 月份进入 ABNORMAL
+
+假设阈值为 3：
+
+```text
+202608:
+
+Task #101 → FAILED
+Task #102 → FAILED
+Task #103 → FAILED
+```
+
+新增：
+
+```text
+Month State #55
+202608 → ABNORMAL
+```
+
+下一轮：
+
+```text
+202608
+```
+
+不得自动加入 Sync Batch。
+
+同时：
+
+```text
+202608
+```
+
+不得 Cleanup。
+
+---
+
+## 46.5 ABNORMAL 人工恢复后再次异常
+
+假设历史状态：
+
+```text
+202608:
+
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+```
+
+表示第一次故障已经通过人工处理并恢复。
+
+之后再次发生连续失败：
+
+```text
+Task #201 → FAILED
+Task #202 → FAILED
+Task #203 → FAILED
+```
+
+系统必须新增：
+
+```text
+Month State:
+ABNORMAL
+```
+
+而不是修改之前的 ABNORMAL 记录。
+
+最终历史为：
+
+```text
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+ABNORMAL
+```
+
+当前状态由最新记录确定：
+
+```text
+ABNORMAL
+```
+
+这样可以完整保留两次独立异常事件。
+
+---
+
+## 46.6 ABNORMAL 人工恢复
+
+管理员在 WebUI 对 `202608` 执行 Retry：
+
+```text
+ABNORMAL
     ↓
-NAS Photos/
+RETRY_REQUESTED
 ```
 
-作为唯一 Sync Task。
-
-原因：
-
-无法直接表达：
+下一轮 Difference Check 发现差异后：
 
 ```text
-哪个月份同步成功？
-哪个月份失败？
-哪个月份重试？
-哪个月份已经满足 Cleanup 条件？
-```
-
-V2 使用：
-
-```text
-一个实际月份目录同步操作 = 一个 Sync Task
-```
-
----
-
-# 47. V2 不做逐文件 Sync Task
-
-以下设计同样不采用：
-
-```text
-Photo A → Task
-Photo B → Task
-Photo C → Task
-```
-
-原因：
-
-- 数据库记录数量会快速膨胀；
-- rsync 本身已经负责文件级增量判断；
-- 月份目录才是本项目实际的生命周期管理单位。
-
-V2 的最小同步单位为：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
----
-
-# 48. 完整生命周期示例
-
-假设：
-
-```text
-2026-08-10
-```
-
-客户端上传了一张：
-
-```text
-EXIF DateTimeOriginal:
-2026-04-05 12:00:00
-```
-
-V1 将其归档：
-
-```text
-Photos/2026/202604/photo.jpg
-```
-
----
-
-## 第一次同步
-
-V2：
-
-```text
-Task 1001
-archive_month = 202604
-status = PENDING
-```
-
-V1 空闲后：
-
-```text
-PENDING
-  ↓
-RUNNING
-  ↓
-rsync Photos/2026/202604/
-  ↓
-SUCCESS
-```
-
-记录：
-
-```text
-completed_at = 2026-08-10 10:00:00
-```
-
----
-
-## 后续又上传历史照片
-
-2026-08-20 又上传：
-
-```text
-Photos/2026/202604/photo2.jpg
-```
-
-V2 创建：
-
-```text
-Task 1002
-archive_month = 202604
-status = PENDING
-```
-
-然后：
-
-```text
-Task 1002
-RUNNING
-  ↓
-rsync
-  ↓
-FAILED
-```
-
-此时：
-
-```text
-202604 最新 Task = FAILED
-```
-
-即使 Task 1001 是 SUCCESS，也：
-
-```text
-禁止 Cleanup
-```
-
----
-
-## 再次同步成功
-
-2026-08-21：
-
-```text
-Task 1003
-archive_month = 202604
-SUCCESS
-completed_at = 2026-08-21 09:00:00
-```
-
-现在：
-
-```text
-202604 最新 Task = SUCCESS
-```
-
-retention 起点为：
-
-```text
-2026-08-21 09:00:00
-```
-
-不是 Task 1001 的：
-
-```text
-2026-08-10 10:00:00
+创建新的 Sync Task
 ```
 
 如果：
 
 ```text
-synced_retention_days = 90
+Task #204 → SUCCESS
 ```
 
-则最早：
+则新增：
 
 ```text
-2026-11-19 09:00:00
+Month State:
+NORMAL
 ```
 
-之后才允许进入删除判断。
+最终：
+
+```text
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+```
+
+最新状态为 `NORMAL`，该月份恢复正常自动同步和 Cleanup 生命周期。
 
 ---
 
-# 49. Cleanup 示例
-
-假设：
+## 46.7 已成功同步的历史月份再次产生新照片
 
 ```text
-archive_month = 202604
-
-最新 Task：
-status = SUCCESS
-completed_at = 2026-06-05 12:00:00
-
-synced_retention_days = 90
+202604
+Task #101 → SUCCESS
 ```
 
-则：
+数月后 V1 又产生：
 
 ```text
-delete_after = 2026-09-03 12:00:00
+Photos/2026/202604/new-photo.jpg
 ```
 
-当：
+Difference Check 发现新差异：
 
 ```text
-current_time < 2026-09-03 12:00:00
+创建 Task #205
 ```
 
-禁止删除。
-
-当：
+因此：
 
 ```text
-current_time >= 2026-09-03 12:00:00
+Task #101 → SUCCESS
+Task #205 → SUCCESS
 ```
 
-并且：
+均作为独立历史记录保留。
 
-```text
-Sync Phase 已完成
-不存在待同步任务
-NAS Ready
-```
-
-才允许：
-
-```text
-删除：
-Photos/2026/202604/
-```
-
-但：
-
-```text
-Photos/2026/
-```
-
-不得删除。
+Cleanup 使用该月份**最新一次成功同步的完成时间**重新计算保留周期。
 
 ---
 
-# 50. V2 状态与安全关系
+# 47. 最终架构定义
 
-可以将核心安全关系总结为：
+V2 的核心模型为：
 
 ```text
-V1 Activity > 0
-    → 不同步
+                    ┌─────────────────────┐
+                    │     V2 Worker       │
+                    │    Background       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   NAS Alive Check   │
+                    └──────────┬──────────┘
+                               │ PASS
+                               ▼
+                    ┌─────────────────────┐
+                    │  V1 Activity Check  │
+                    └──────────┬──────────┘
+                               │ IDLE
+                               ▼
+                    ┌─────────────────────┐
+                    │   NAS Ready Check   │
+                    └──────────┬──────────┘
+                               │ PASS
+                               ▼
+                    ┌─────────────────────┐
+                    │  Difference Check   │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Latest Month State │
+                    │      Filter         │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │        Batch        │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    ▼                     ▼
+             Sync Task #1          Sync Task #N
+                    │                     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Month State       │
+                    │   History Update   │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Cleanup Check     │
+                    │   ALL YYYYMM        │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │    Cycle Complete   │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                             Sleep
+                               │
+                               ▼
+                       Next Cycle
+```
 
-NAS != READY
-    → 不同步、不删除
+V2 最终形成以下三个相互独立但相互关联的核心数据语义：
 
-存在待同步 Task
-    → 不删除
+```text
+Batch
+  │
+  └── 描述“一轮同步发现了哪些任务”
 
-最新月份 Task != SUCCESS
-    → 不删除
+Sync Task
+  │
+  └── 描述“某个 YYYYMM 的一次实际同步执行结果”
 
-最新 SUCCESS 未达到 retention
-    → 不删除
+Month State History
+  │
+  └── 描述“某个 YYYYMM 在不同时间发生过哪些状态变化”
+```
 
-以上全部满足
-    → 才允许删除 YYYYMM
+其中当前 Month State 并不是一个固定数据库记录，而是：
+
+```text
+当前 Month State
+=
+该 archive_month 最新的一条 Month State History 记录
 ```
 
 ---
 
-# 51. V2 与 NAS 的最终关系
+# 48. V2 与 V1 的边界
 
-V2 不是 NAS 的双向同步系统。
-
-方向固定：
-
-```text
-R5S
- ↓
-NAS
-```
-
-NAS 不反向同步到 R5S。
-
-V2 不处理：
-
-- NAS → R5S；
-- NAS → Client；
-- 双向冲突解决；
-- NAS 文件修改同步回 R5S。
-
----
-
-# 52. V2 数据生命周期总结
+V1 负责：
 
 ```text
 Client
   ↓
-V1
+Upload
+  ↓
+Precheck
+  ↓
+SHA-256
+  ↓
+EXIF
+  ↓
+Archive
   ↓
 Photos/YYYY/YYYYMM/
+```
+
+V2 负责：
+
+```text
+Photos/YYYY/YYYYMM/
   ↓
-发现月份
+NAS Alive
   ↓
-PENDING Sync Task
-  ↓
-等待 V1 Activity = 0
+V1 Idle
   ↓
 NAS Ready
   ↓
-RUNNING
+Difference Check
   ↓
-rsync
-  ├─ FAILED → 保留 R5S 数据
-  │
-  └─ SUCCESS
-          ↓
-     Sync Phase Complete
-          ↓
-       Cleanup
-          ↓
-     查询最新 Task
-          ↓
-     最新状态 SUCCESS
-          ↓
-     retention 到期
-          ↓
-       NAS Ready
-          ↓
-   删除 Photos/YYYY/YYYYMM/
+Rsync
+  ↓
+Sync Task History
+  ↓
+Month State History
+  ↓
+Cleanup Lifecycle
 ```
+
+V1 与 V2 之间通过正式照片目录及 V1 数据库状态进行协作，但两者职责保持独立。
 
 ---
 
-# 53. V2 明确不包含的功能
-
-以下内容不属于 V2 第一版范围：
-
-1. NAS SHA-256 全量校验。
-2. NAS → R5S 反向同步。
-3. 双向同步。
-4. NAS 文件冲突解决。
-5. 每个照片独立 Sync Task。
-6. 整个 `Photos/` 作为单一 Sync Task。
-7. `rsync --delete`。
-8. 自动删除 `YYYY` 年份目录。
-9. 默认按天删除照片。
-10. NAS Integrity Audit。
-11. NAS RAID 管理。
-12. NAS 快照管理。
-13. 视频同步策略。
-14. 云端同步。
-
----
-
-# 54. V2 验收标准
-
-V2 实现完成后，至少必须通过以下测试。
-
-## 54.1 基础月份同步
-
-```text
-Photos/2026/202608/
-```
-
-能够通过 rsync 同步到：
-
-```text
-NAS/Photos/2026/202608/
-```
-
-并生成 SUCCESS Task。
-
----
-
-## 54.2 历史月份重新上传
-
-已有：
-
-```text
-202604 → SUCCESS
-```
-
-再次新增：
-
-```text
-Photos/2026/202604/new.jpg
-```
-
-必须生成新的 Sync Task。
-
-不得覆盖原 Task。
-
----
-
-## 54.3 同步失败
-
-模拟 NAS 不可用或 rsync 失败：
-
-```text
-Task = FAILED
-```
-
-且：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-不得被 Cleanup 删除。
-
----
-
-## 54.4 成功后再次失败
-
-测试：
-
-```text
-SUCCESS
-↓
-FAILED
-```
-
-最新状态必须为：
-
-```text
-FAILED
-```
-
-即使旧 SUCCESS 已超过 retention，也：
-
-```text
-禁止删除
-```
-
----
-
-## 54.5 再次成功
-
-测试：
-
-```text
-SUCCESS
-↓
-FAILED
-↓
-SUCCESS
-```
-
-Cleanup retention 必须从**最新 SUCCESS 的 `completed_at`**重新计算。
-
----
-
-## 54.6 无同步记录
-
-存在：
-
-```text
-Photos/2026/202604/
-```
-
-但无 Sync Task：
-
-```text
-禁止删除
-```
-
----
-
-## 54.7 V1 正在上传
-
-V1：
-
-```text
-UPLOADING
-```
-
-V2：
-
-```text
-不执行 rsync
-```
-
----
-
-## 54.8 V1 已上传但仍 Processing
-
-V1：
-
-```text
-UPLOADED
-```
-
-或者 Worker：
-
-```text
-PROCESSING
-```
-
-V2：
-
-```text
-不执行 rsync
-```
-
----
-
-## 54.9 V1 完全空闲
-
-只有：
-
-```text
-无 CREATED
-无 UPLOADING
-无 UPLOADED
-无 PROCESSING
-无 V1 pending/processing worker task
-```
-
-之后才允许实际 rsync。
-
----
-
-## 54.10 Cleanup 前 NAS 掉线
-
-即使：
-
-```text
-Sync SUCCESS
-retention 已到期
-```
-
-但 Cleanup 前 NAS Ready Check 失败：
-
-```text
-禁止删除
-```
-
----
-
-## 54.11 不删除年份目录
-
-删除：
-
-```text
-Photos/2026/202604/
-```
-
-后：
-
-```text
-Photos/2026/
-```
-
-必须保留。
-
----
-
-## 54.12 禁止 NAS 被 R5S Cleanup 影响
-
-R5S 删除：
-
-```text
-Photos/2026/202604/
-```
-
-之后：
-
-```text
-NAS/Photos/2026/202604/
-```
-
-必须继续存在。
-
----
-
-# 55. 最终设计结论
-
-V2 的核心模型最终确定为：
-
-```text
-R5S
-  │
-  │ Photos/YYYY/YYYYMM/
-  │
-  ▼
-Sync Worker
-  │
-  ├── 等待 V1 Activity = 0
-  ├── NAS SSH Port Check
-  ├── NAS Ready Check
-  │
-  ▼
-Sync Phase
-  │
-  ├── 一个 YYYYMM = 一个实际 Sync Task
-  ├── 目录级 rsync
-  ├── 每次同步独立记录
-  └── 不使用 --delete
-  │
-  ▼
-Sync Phase Complete
-  │
-  ├── 不存在待同步任务
-  │
-  ▼
-Cleanup Phase
-  │
-  ├── 查询 YYYYMM 最新 Sync Task
-  ├── 最新状态必须 SUCCESS
-  ├── 使用最新 SUCCESS.completed_at
-  ├── retention = synced_retention_days
-  ├── 再次 NAS Ready Check
-  │
-  ▼
-删除 R5S Photos/YYYY/YYYYMM/
-```
-
-其中最重要的三条不可违反的规则是：
-
-> **第一：整个项目的照片目录统一为 `Photos/YYYY/YYYYMM/`。**
-
-> **第二：`photo_sync_tasks` 是每一次实际同步操作的历史记录，同一个 `YYYYMM` 可以存在多条 Task，不能以月份作为唯一键。**
-
-> **第三：Cleanup 判断一个月份能否删除时，必须先取得该月份最新的一条 Sync Task；只有最新状态为 `SUCCESS`，并且该次成功的 `completed_at` 已超过 `synced_retention_days`，同时 Sync Phase 已完成、没有待同步任务且 NAS Ready，才允许删除该 `YYYYMM` 目录。任何历史 SUCCESS 都不能绕过最新状态判断。**
-
----
-
-# 56. V2 实现建议顺序
-
-实现时建议严格按照以下顺序：
-
-```text
-1. V2 Config
-       ↓
-2. photo_sync_tasks DB Model
-       ↓
-3. NAS SSH / Ready Check
-       ↓
-4. V1 Activity Detection
-       ↓
-5. Sync Task Discovery
-       ↓
-6. Month-level rsync
-       ↓
-7. Sync Task State Management
-       ↓
-8. Sync Phase Completion Detection
-       ↓
-9. Cleanup Eligibility Detection
-       ↓
-10. YYYYMM Cleanup
-       ↓
-11. Worker System Service
-       ↓
-12. Logging / Metrics
-       ↓
-13. Historical Data Initial Sync
-       ↓
-14. Integration Tests
-```
-
-V2 的实现必须以本文档定义的状态和安全边界为基准，不应通过简化状态判断来绕过 Cleanup 安全条件。
+# 49. 版本结论
+
+本 V2.2 Design Baseline 确定以下核心设计：
+
+- V2 Worker 系统启动后后台常驻运行；
+- 每个 Cycle 从 NAS Alive Check 开始；
+- NAS Alive、V1 Idle、NAS Ready 是进入正式处理阶段的三个必要条件；
+- Difference Check 决定本轮真正需要同步的月份；
+- Batch 表示本轮发现的同步任务集合；
+- Sync Task 表示一次实际同步执行；
+- 同一 `YYYYMM` 可以拥有多个历史 Sync Task；
+- Month State 采用追加式历史记录模型；
+- 同一个 `YYYYMM` 可以拥有多条 Month State 记录；
+- `archive_month` 不得作为 `photo_sync_month_states` 的唯一键；
+- 任何业务需要获取当前 Month State 时，必须使用该月份最新的一条记录；
+- 每次进入 ABNORMAL 都必须创建独立的历史记录；
+- 人工 Retry 和恢复 NORMAL 同样通过新增状态记录实现，不修改历史记录；
+- 连续 N 次失败后进入 ABNORMAL；
+- ABNORMAL 必须人工 Retry 后才能恢复自动同步资格；
+- 同步失败只影响对应月份，不影响其他月份；
+- Cleanup 在每个满足 NAS Alive、V1 Idle、NAS Ready 三项前置条件的 Cycle 中执行；
+- Cleanup 遍历全部历史月份，而不是仅处理当前 Batch；
+- Cleanup 不要求本轮存在 Batch，也不要求本轮任务全部 SUCCESS；
+- 某月份只有在当前 Month State 为 NORMAL、最新 Sync Task 为 SUCCESS 且达到保留周期时才能删除；
+- 某个月份的同步失败不得阻止其他月份 Cleanup；
+- 删除前不重复检查 NAS；
+- R5S Cleanup 不得通过 `rsync --delete` 影响 NAS；
+- 所有 Sync Task 历史和 Month State 历史必须长期保留。
+
+该模型将**同步调度、同步执行历史、月份状态历史、异常隔离和本地生命周期管理**明确分离，可作为 Photo Gateway V2 的正式实现基线。
