@@ -2,66 +2,108 @@
 
 Photo Gateway 是一个面向家庭照片管理场景设计的**照片导入网关与存储中间层**。
 
-项目运行在 NanoPi R5S 上，负责把来自手机、电脑及其他设备的照片安全、可控地导入本地照片库，并按照照片实际拍摄时间进行统一归档。后续通过 V2 将 R5S 上的照片同步到 NAS，R5S 作为临时存储与处理节点，NAS 作为最终正式存储。
+项目运行在 NanoPi R5S 上，负责将手机、电脑及其他局域网设备中的照片安全、可控地导入本地照片库，完成重复检测、元数据处理和日期归档。V2 在此基础上负责将 R5S 上的照片同步到 NAS，并按照安全策略管理 R5S 上的历史照片生命周期。
 
-本项目本身**不是完整的照片管理软件**。照片浏览、时间线、人脸识别、搜索等能力交给成熟的照片管理产品完成，例如 Immich。这样可以让 Photo Gateway 专注于“照片如何进入照片库、如何可靠保存和同步”这一核心问题，同时保持与上层照片管理软件的解耦。
+Photo Gateway 本身**不是完整的照片管理软件**。照片浏览、时间线、人脸识别、搜索等能力交给独立的照片管理软件，例如 Immich。Photo Gateway 只负责照片文件从客户端进入照片库，以及照片在 R5S 和 NAS 之间的可靠流转。
+
+---
 
 ## 1. 项目定位
 
-整个家庭照片系统的职责可以划分为：
+整个家庭照片系统的职责划分如下：
 
 ```text
 手机 / 电脑 / 其他设备
           │
-          │  局域网
+          │ 局域网
           ▼
 ┌─────────────────────────────┐
 │       Photo Gateway         │
 │          NanoPi R5S         │
 │                             │
-│  照片接收                    │
-│  重复预检                    │
+│  照片接收                   │
+│  重复预检                   │
 │  SHA-256                    │
-│  EXIF / 元数据处理           │
-│  日期归档                    │
-│  同步任务                    │
-│  临时数据清理                │
+│  EXIF / 元数据处理          │
+│  日期归档                   │
+│  V1 Processing Worker       │
+│  V2 NAS 同步                │
+│  历史数据清理               │
 └──────────────┬──────────────┘
                │
                │ rsync over SSH
                ▼
 ┌─────────────────────────────┐
 │             NAS             │
-│       最终正式照片存储        │
+│       最终正式照片存储       │
 └──────────────┬──────────────┘
                │
                │ External Library
                ▼
 ┌─────────────────────────────┐
-│            Immich            │
-│       照片管理与浏览          │
+│        照片管理软件          │
+│    例如 Immich / 其他软件    │
 └─────────────────────────────┘
 ```
 
-其中：
+各组件职责明确：
 
 - **Photo Gateway**：本项目负责实施和维护。
-- **NAS**：照片最终正式存储空间，由项目通过 V2 负责同步。
-- **Immich**：作为上层照片管理软件使用，不属于本项目的实施范围。
+- **R5S**：照片接收、处理、归档以及 NAS 同步的中间节点。
+- **NAS**：照片最终正式存储空间。
+- **照片管理软件**：负责照片浏览、搜索、时间线等上层管理能力，不参与 Photo Gateway 的导入和同步流程。
 
-## 2. 核心目标
+---
 
-Photo Gateway 主要解决以下问题：
+## 2. 核心设计原则
 
-- 从多个设备集中导入照片。
-- 在真正上传大文件之前进行快速重复预检。
-- 使用 SHA-256 进行最终重复判断。
-- 从照片 EXIF 等元数据中确定照片拍摄时间。
-- 将照片统一归档到稳定的目录结构。
-- 记录照片、上传任务和处理过程。
-- 在 R5S 与 NAS 之间可靠地同步照片。
-- 在确认 NAS 已经成功保存照片并满足保留期限后，自动清理 R5S 上的历史临时数据。
-- 保证照片原始目录结构不依赖任何具体的照片管理软件。
+Photo Gateway 遵循以下几个核心原则：
+
+### 2.1 照片文件与管理软件解耦
+
+Photo Gateway 只负责维护原始照片文件和稳定的目录结构。
+
+上层照片管理软件可以随时替换，不应该影响已经保存的照片。
+
+### 2.2 照片导入与 NAS 同步解耦
+
+V1 只负责：
+
+```text
+客户端 → R5S → 本地 Photos
+```
+
+V2 再负责：
+
+```text
+R5S → NAS
+```
+
+V1 不访问 NAS，也不提前引入 NAS 相关逻辑。
+
+### 2.3 临时存储与最终存储解耦
+
+R5S 是照片导入、处理和同步过程中的中间节点。
+
+NAS 才是照片的最终正式存储位置。
+
+因此：
+
+```text
+R5S
+  = 接收 + 处理 + 临时保存 + 同步源
+
+NAS
+  = 最终正式存储
+```
+
+### 2.4 宁可不删除，也不能误删除
+
+任何 R5S 照片删除操作都必须建立在明确的同步成功和生命周期条件之上。
+
+V2 的 Cleanup 不根据“曾经同步成功过”简单判断，而是按照当前月份状态、最新同步任务以及保留期限进行独立判断。
+
+---
 
 ## 3. 照片目录结构
 
@@ -89,84 +131,244 @@ Photos/
 
 这是整个项目最重要的基础约束之一。
 
-**V1 和 V2 均使用 `Photos/YYYY/YYYYMM/`，不会使用 `Photos/YYYY/MM/` 或其他日期目录结构。**
+**V1 和 V2 均必须使用 `Photos/YYYY/YYYYMM/`，不得使用 `Photos/YYYY/MM/` 或其他日期目录结构。**
 
-照片归档月份由照片元数据确定，而不是由上传时间确定。
+### 3.1 归档月份由照片时间确定
+
+照片归档月份不是上传月份，而是根据照片元数据确定。
 
 例如：
 
 ```text
 2026-08-10 上传
-照片 EXIF 拍摄时间：2026-04-05
+
+照片 EXIF 拍摄时间：
+2026-04-05
 
         ↓
 
 Photos/2026/202604/
 ```
 
-因此，一张历史照片即使在很久以后才上传，仍然会归档到它实际所属的月份。
+因此，即使一张历史照片在很久以后才上传，也仍然归档到它实际所属的月份。
+
+---
 
 ## 4. V1：照片导入与本地归档
 
-V1 的职责是：
+V1 是 Photo Gateway 的本地照片导入阶段。
+
+整体流程：
 
 ```text
 客户端
   ↓
-上传
+创建 Upload Session
   ↓
-R5S 接收
+Precheck
   ↓
-重复预检
+筛选真正需要上传的文件
+  ↓
+上传到 R5S
+  ↓
+Processing Worker
   ↓
 SHA-256 / 元数据处理
   ↓
-日期归档
+确定归档日期
   ↓
 Photos/YYYY/YYYYMM/
 ```
 
-V1 主要包含：
+V1 主要负责：
 
-- WebUI
-- Upload API
+- 局域网照片上传
 - Upload Session
-- Batch Precheck
+- 批量重复预检
 - 用户确认机制
-- SHA-256
-- EXIF 元数据解析
+- SHA-256 最终重复判断
+- EXIF / 元数据解析
+- 日期归档
+- SQLite 数据管理
 - Processing Worker
-- SQLite
 - 结构化日志
-- 本地照片归档
+- R5S 本地照片存储
 
-V1 只负责 R5S 本地的照片接收和归档。
+### 4.1 两级重复检测
 
-**V1 不负责 NAS 同步。**
+V1 使用两级重复检测机制。
 
-这样可以将照片导入与后续存储复制解耦，降低系统复杂度。
-
-## 5. V2：NAS 同步与 R5S 生命周期管理
-
-V2 在 V1 的基础上增加 NAS 同步能力。
-
-核心关系：
+第一阶段使用：
 
 ```text
-R5S
-Photos/YYYY/YYYYMM/
-        │
-        │ rsync over SSH
-        ▼
-NAS
+source_device
++
+original_filename
++
+file_size
+```
+
+进行快速预检。
+
+第二阶段使用：
+
+```text
+SHA-256
+```
+
+进行最终判断。
+
+这样可以避免在大量明显重复的情况下，对所有文件立即执行完整 SHA-256 计算。
+
+### 4.2 V1 不负责 NAS
+
+V1 明确不负责：
+
+```text
+NAS 探测
+NAS 挂载
+NAS rsync
+NAS 同步
+NAS 同步状态
+NAS 数据删除
+```
+
+V1 的最终输出就是 R5S 上稳定的：
+
+```text
 Photos/YYYY/YYYYMM/
 ```
 
-R5S 是临时存储与同步源，NAS 是最终正式存储。
+---
 
-### 5.1 按月份进行同步
+## 5. V2：NAS 同步与 R5S 生命周期管理
 
-V2 以 `YYYYMM` 月份目录作为同步管理单位。
+V2 建立在 V1 正式照片目录之上，负责：
+
+```text
+NAS 状态检查
+        ↓
+V1 任务隔离
+        ↓
+NAS Ready Check
+        ↓
+Difference Check
+        ↓
+创建 Sync Batch / Sync Task
+        ↓
+rsync over SSH
+        ↓
+同步状态记录
+        ↓
+历史月份 Cleanup
+```
+
+V2 不改变照片目录结构，也不重新定义照片存储方式。
+
+---
+
+## 6. V2 Worker 生命周期
+
+V2 Worker 是系统启动后持续运行的后台服务。
+
+每一个 V2 工作周期都必须从 **NAS Alive Check** 开始。
+
+整体生命周期：
+
+```text
+┌──────────────────────┐
+│   NAS Alive Check    │
+└──────────┬───────────┘
+           │
+      NAS 不可用
+           │
+           ▼
+       等待下一轮
+           
+           │ NAS 可用
+           ▼
+┌──────────────────────┐
+│   V1 Activity Check  │
+└──────────┬───────────┘
+           │
+      V1 仍有任务
+           │
+           ▼
+       等待 V1 空闲
+
+           │ V1 空闲
+           ▼
+┌──────────────────────┐
+│   NAS Ready Check    │
+└──────────┬───────────┘
+           │
+      Ready 失败
+           │
+           ▼
+       等待下一轮
+
+           │ Ready 成功
+           ▼
+┌──────────────────────┐
+│   Formal Processing  │
+│                      │
+│ Difference Check     │
+│ Batch / Sync Task    │
+│ Sync                 │
+│ Cleanup              │
+└──────────────────────┘
+           │
+           ▼
+       等待下一轮
+```
+
+因此，V2 不会在 NAS 不可用、V1 仍然工作或者 NAS 尚未满足同步条件时进行正式同步操作。
+
+---
+
+## 7. V1 / V2 资源隔离
+
+R5S 的 CPU、内存、USB HDD 和网络资源有限。
+
+V2 不应该与 V1 的上传和照片处理任务竞争大量系统资源。
+
+因此 V2 在正式同步之前必须确认 V1 已经完全空闲。
+
+V1 Activity 包括：
+
+- 活动中的 Upload Session
+- 正在上传的任务
+- 客户端上传完成但尚未处理完成的任务
+- Worker 正在处理的任务
+- Worker 队列中等待处理的任务
+
+只有这些任务全部结束后，V2 才进入 NAS Ready 和正式同步阶段。
+
+---
+
+## 8. NAS 同步
+
+V2 使用：
+
+```text
+rsync over SSH
+```
+
+执行：
+
+```text
+R5S → NAS
+```
+
+的单向同步。
+
+照片同步以：
+
+```text
+YYYYMM
+```
+
+月份目录作为管理单位。
 
 例如：
 
@@ -174,14 +376,14 @@ V2 以 `YYYYMM` 月份目录作为同步管理单位。
 Photos/2026/202604/
 ```
 
-对应一次月份级同步任务。
+是一个同步管理单位。
 
 不会：
 
-- 把整个 `Photos/` 作为一个同步任务；
-- 为每一张照片建立一个同步任务。
+- 将整个 `Photos/` 作为一个同步任务；
+- 为每一张照片创建一个同步任务。
 
-每次实际发生的月份目录同步都会产生独立的同步记录，因此同一个月份可以拥有多次同步记录。
+同一个月份可以在不同时间产生多次 Sync Task。
 
 例如：
 
@@ -191,79 +393,291 @@ Photos/2026/202604/
 202604 → SUCCESS
 ```
 
-这样可以完整记录历史月份后续新增照片时发生的再次同步。
+这样可以支持历史月份后续新增照片后的再次同步，同时保留完整的同步执行历史。
 
-### 5.2 V1 / V2 资源隔离
+---
 
-R5S 的 CPU、内存、USB HDD 和网络资源有限。
+## 9. Difference Check
 
-因此 V2 不会在 V1 仍有活动任务时执行大规模同步。
+Difference Check 是 V2 判断“是否真正需要同步”的权威依据。
 
-V2 会等待 V1 完全空闲，包括：
+一个月份之前已经同步成功，并不意味着以后永远不会再次产生 Sync Task。
 
-- 活动中的 Upload Session；
-- 正在上传的任务；
-- 已完成客户端上传但尚未完成后台处理的任务；
-- V1 Worker 正在处理的任务；
-- V1 Worker 队列中仍待处理的任务。
-
-只有 V1 的上传和后台处理任务全部完成后，V2 才开始实际 rsync。
-
-### 5.3 同步与清理分离
-
-V2 将工作明确划分为：
+例如：
 
 ```text
-Sync Phase
-    ↓
-Sync Phase Complete
-    ↓
-Cleanup Phase
+202604
+  ↓
+第一次同步
+  ↓
+SUCCESS
 ```
 
-只有同步阶段已经完成，并且不存在待同步任务时，才允许进入清理阶段。
-
-### 5.4 R5S 历史照片清理
-
-R5S 不是最终照片存储。
-
-当某个月份已经成功同步到 NAS，并且满足配置的保留期限后，可以删除 R5S 上对应的月份目录。
-
-默认：
-
-```text
-synced_retention_days = 90
-```
-
-正常情况下按照月份目录删除，例如：
+之后如果 R5S 的：
 
 ```text
 Photos/2026/202604/
 ```
 
-但不会删除：
+又新增了历史照片：
 
 ```text
-Photos/2026/
+Difference Check
+  ↓
+发现差异
+  ↓
+创建新的 Sync Task
 ```
 
-等上级年份目录。
+因此：
 
-### 5.5 清理的安全规则
+> **Sync Task 是一次具体执行记录，而不是某个 YYYYMM 的永久唯一记录。**
 
-Cleanup 不会简单地根据历史上是否出现过一次成功同步来删除数据。
+---
 
-对于每一个 `YYYYMM` 目录，必须先找到该月份**最新的一条 Sync Task**。
+## 10. Batch、Sync Task 与 Month State
 
-只有：
+V2 使用三个相互独立的核心对象管理同步过程。
+
+### 10.1 Batch
+
+Batch 表示一次 V2 工作周期中，通过 Difference Check 发现的一组月份同步任务。
 
 ```text
-最新 Task.status = SUCCESS
+Batch #100
+├── 202604
+├── 202605
+└── 202606
 ```
 
-才允许继续判断保留期限。
+Batch 主要用于组织一次同步周期。
 
-如果最新状态是：
+### 10.2 Sync Task
+
+Sync Task 表示某一个 `YYYYMM` 的一次具体同步执行。
+
+例如：
+
+```text
+202604 → SUCCESS
+202604 → FAILED
+202604 → SUCCESS
+```
+
+每次实际执行都产生独立的 Sync Task。
+
+Sync Task 状态包括：
+
+```text
+PENDING
+RUNNING
+SUCCESS
+FAILED
+```
+
+### 10.3 Month State
+
+Month State 表示某个 `YYYYMM` 的同步健康状态历史。
+
+状态包括：
+
+```text
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+```
+
+Month State 是**历史记录**，而不是固定的一行当前状态。
+
+同一个月份可以拥有：
+
+```text
+NORMAL
+ABNORMAL
+RETRY_REQUESTED
+NORMAL
+ABNORMAL
+```
+
+等多条历史记录。
+
+当前状态通过该月份最新的 Month State 记录确定。
+
+---
+
+## 11. Failure Cycle 与故障隔离
+
+V2 不会因为一次同步失败就永久阻塞某个月份。
+
+每个 `YYYYMM` 都拥有独立的 failure cycle。
+
+一个典型生命周期：
+
+```text
+首次发现 YYYYMM
+        ↓
+NORMAL
+        ↓
+当前 failure cycle
+        ↓
+连续 N 次 Sync Task FAILED
+        ↓
+ABNORMAL
+```
+
+当连续失败达到配置阈值后：
+
+```text
+ABNORMAL
+```
+
+该月份进入自动同步隔离。
+
+后续 Difference Check 不会自动将该月份加入新的同步 Batch。
+
+其他月份不受影响。
+
+例如：
+
+```text
+202604 → ABNORMAL
+202605 → NORMAL
+202606 → NORMAL
+```
+
+202604 的同步故障不会阻止 202605、202606 正常同步或执行 Cleanup。
+
+---
+
+## 12. Retry 与新的 Failure Cycle
+
+`ABNORMAL` 月份不能自动解除隔离。
+
+只有人工通过 WebUI 执行 Retry，才能重新允许该月份进入同步流程。
+
+Retry 状态转换：
+
+```text
+ABNORMAL
+    ↓
+RETRY_REQUESTED
+    ↓
+创建第一个新的 Sync Task
+    ↓
+NORMAL
+    ↓
+新的 failure cycle
+```
+
+这里有一个重要原则：
+
+> **人工 Retry 会建立新的 failure cycle。**
+
+因此 Retry 之前的失败记录不会参与新的连续失败计算。
+
+例如失败阈值为 3：
+
+```text
+Cycle 1:
+
+#101 FAILED
+#102 FAILED
+#103 FAILED
+        ↓
+ABNORMAL
+
+人工 Retry
+        ↓
+RETRY_REQUESTED
+
+Cycle 2:
+
+创建 #104
+        ↓
+NORMAL
+
+#104 FAILED
+        ↓
+连续失败 = 1
+
+#105 FAILED
+        ↓
+连续失败 = 2
+
+#106 FAILED
+        ↓
+连续失败 = 3
+        ↓
+ABNORMAL
+```
+
+旧 failure cycle 中的失败不会污染新的 failure cycle。
+
+---
+
+## 13. Cleanup：R5S 历史照片生命周期
+
+R5S 是临时存储与同步节点，因此历史照片在满足安全条件后可以从 R5S 删除。
+
+默认保留期限：
+
+```text
+synced_retention_days = 90
+```
+
+Cleanup 不是“同步完成后的附属步骤”，而是 V2 每个满足前置条件的工作周期都会执行的独立阶段。
+
+也就是说：
+
+```text
+NAS Alive
+    ↓
+V1 Idle
+    ↓
+NAS Ready
+    ↓
+正式处理
+    ├── Difference / Sync
+    └── Cleanup
+```
+
+即使：
+
+- 本轮没有 Batch；
+- 本轮没有 Sync Task；
+- 本轮部分 Sync Task 失败；
+
+只要 V2 已经满足：
+
+```text
+NAS Alive
+V1 Idle
+NAS Ready
+```
+
+仍然会执行 Cleanup。
+
+---
+
+## 14. Cleanup 安全规则
+
+Cleanup 对所有 `YYYYMM` 目录独立判断。
+
+一个月份只有在满足全部必要条件后才能删除。
+
+核心条件包括：
+
+```text
+当前 Month State = NORMAL
+        +
+存在 Sync Task
+        +
+最新 Sync Task = SUCCESS
+        +
+满足 retention
+```
+
+如果最新 Sync Task 是：
 
 ```text
 PENDING
@@ -271,148 +685,305 @@ RUNNING
 FAILED
 ```
 
-或者根本没有同步记录：
+则禁止删除。
+
+如果该月份没有任何 Sync Task，也禁止删除。
+
+如果月份当前状态为：
 
 ```text
-禁止删除
+ABNORMAL
 ```
 
-保留期限从**最新一次 SUCCESS 的完成时间**开始计算。
+或：
+
+```text
+RETRY_REQUESTED
+```
+
+同样禁止删除。
+
+### 14.1 Cleanup 不依赖本轮 Batch
+
+Cleanup 检查的是 R5S 上全部月份目录，而不是只检查当前 Batch 中的月份。
 
 例如：
 
 ```text
-202604
-
-2026-06-05 12:00:00  SUCCESS
-2026-08-10 09:00:00  FAILED
-```
-
-虽然历史上存在 SUCCESS，但最新状态是 FAILED，因此不能删除。
-
-如果之后再次：
-
-```text
-2026-08-11 09:00:00  SUCCESS
-```
-
-那么保留期限重新从：
-
-```text
-2026-08-11 09:00:00
-```
-
-开始计算。
-
-Cleanup 执行前还必须再次确认 NAS Ready。
-
-项目遵循：
-
-> **宁可不删除，也不能误删除。**
-
-## 6. Immich
-
-Immich 是整个家庭照片系统中的**上层照片管理软件**。
-
-本项目计划通过 Immich 的 External Library 读取照片目录：
-
-```text
 Photos/
+├── 2025/202501/
+├── 2025/202512/
+├── 2026/202601/
+└── 2026/202608/
 ```
+
+即使本轮 Batch 只有：
+
+```text
+2026/202608
+```
+
+Cleanup 仍然会逐个检查其他月份。
 
 因此：
 
+> **同步任务与 Cleanup 的执行范围相互独立。**
+
+### 14.2 Cleanup 不进行第二次 NAS Check
+
+当前 V2 周期已经完成：
+
+```text
+NAS Alive
+    ↓
+V1 Idle
+    ↓
+NAS Ready
+```
+
+之后进入正式处理阶段。
+
+Cleanup 前不再重复执行一次 NAS Alive / NAS Ready Check。
+
+如果 NAS 在同步过程中发生故障，对应 Sync Task 会失败；后续工作周期重新从 NAS Alive Check 开始。
+
+---
+
+## 15. 数据安全边界
+
+V2 使用：
+
+```text
+R5S → NAS
+```
+
+单向同步。
+
+项目不实现：
+
+```text
+NAS → R5S
+```
+
+反向同步，也不实现双向文件同步。
+
+正常同步禁止使用：
+
+```text
+rsync --delete
+```
+
+V2 不通过 rsync 的删除能力反向修改 NAS 数据。
+
+R5S 上月份目录的删除只能由 Cleanup 根据项目定义的状态和保留策略执行。
+
+---
+
+## 16. Immich 与照片管理软件
+
+Photo Gateway 不负责照片浏览、搜索、时间线、人脸识别等上层照片管理能力。
+
+当前计划使用 Immich 作为上层照片管理软件，通过 External Library 读取正式照片目录。
+
+逻辑关系：
+
 ```text
 Photo Gateway
-    ↓
-负责照片文件本身
-    ↓
+      ↓
 Photos/YYYY/YYYYMM/
-    ↓
-Immich External Library
-    ↓
-负责浏览、时间线、搜索等照片管理能力
+      ↓
+NAS
+      ↓
+External Library
+      ↓
+Immich
 ```
 
-Photo Gateway **不使用 Immich 的内部照片存储机制**。
+Photo Gateway：
 
-Immich 只是当前选用的照片管理产品，不是 Photo Gateway 的核心组成部分，也不作为本项目的开发目标。
+- 不使用 Immich 内部照片存储机制；
+- 不依赖 Immich 数据库；
+- 不把 Immich 作为核心业务组件；
+- 不要求 Photo Gateway 与 Immich 强耦合。
 
-如果未来 Immich 不再适合使用，可以替换为其他照片管理软件，只要新的软件能够读取现有照片目录，就不会影响 Photo Gateway 的核心数据。
+如果未来更换照片管理软件，只要新的软件能够读取现有照片目录，就不应该影响 Photo Gateway 保存的原始照片。
 
-因此，本项目与 Immich 保持松耦合：
+---
+
+## 17. 存储架构
+
+当前整体数据流为：
 
 ```text
-Photo Gateway
-      │
-      │ 标准文件目录
-      ▼
-Photos/
-      │
-      ├── Immich
-      │
-      └── 未来其他照片管理软件
+                         ┌─────────────────┐
+                         │    Client       │
+                         │ 手机 / 电脑等    │
+                         └────────┬────────┘
+                                  │
+                                  │ LAN
+                                  ▼
+                         ┌─────────────────┐
+                         │ Photo Gateway   │
+                         │   NanoPi R5S    │
+                         │                 │
+                         │ Upload          │
+                         │ Precheck        │
+                         │ Processing      │
+                         │ Archive         │
+                         │ Sync            │
+                         │ Cleanup         │
+                         └────────┬────────┘
+                                  │
+                         Photos/YYYY/YYYYMM/
+                                  │
+                           rsync over SSH
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │       NAS       │
+                         │  正式照片存储    │
+                         └────────┬────────┘
+                                  │
+                           External Library
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │ Photo Manager   │
+                         │ Immich / other  │
+                         └─────────────────┘
 ```
 
-## 7. 存储架构
-
-当前整体存储关系：
-
-```text
-                    ┌──────────────┐
-                    │   Client     │
-                    │ 手机 / 电脑等 │
-                    └──────┬───────┘
-                           │
-                           ▼
-                 ┌──────────────────┐
-                 │   Photo Gateway   │
-                 │     NanoPi R5S    │
-                 │                  │
-                 │ 接收 / 处理 / 归档 │
-                 └────────┬─────────┘
-                          │
-                   Photos/YYYY/YYYYMM/
-                          │
-                    rsync over SSH
-                          │
-                          ▼
-                 ┌──────────────────┐
-                 │       NAS        │
-                 │   正式照片存储    │
-                 └────────┬─────────┘
-                          │
-                    External Library
-                          │
-                          ▼
-                 ┌──────────────────┐
-                 │      Immich      │
-                 │   照片管理界面    │
-                 └──────────────────┘
-```
-
-数据流方向为：
+核心数据流方向：
 
 ```text
 Client → R5S → NAS
 ```
 
-Immich 只读取照片库，不参与照片导入和同步流程。
+照片管理软件只读取照片库，不参与照片导入和 NAS 同步。
 
-## 8. 当前项目范围
+---
+
+## 18. R5S 目录
+
+V1 在 R5S 上使用：
+
+```text
+/mnt/sda1/photo-gateway/
+```
+
+主要目录：
+
+```text
+photo-gateway/
+├── incoming/
+├── processing/
+├── failed/
+├── Photos/
+├── logs/
+└── database/
+```
+
+其中：
+
+```text
+incoming/
+```
+
+用于保存上传中的临时文件。
+
+```text
+processing/
+```
+
+用于保存 Worker 当前正在处理的文件。
+
+```text
+failed/
+```
+
+用于保存处理失败且无法自动恢复的文件。
+
+```text
+Photos/
+```
+
+是正式照片目录。
+
+```text
+logs/
+```
+
+保存系统运行、上传、处理、审计和错误日志。
+
+```text
+database/
+```
+
+保存 SQLite 数据库。
+
+---
+
+## 19. 数据与状态管理
+
+V1 使用 SQLite 保存照片导入和处理相关状态。
+
+核心数据包括：
+
+- 设备
+- Upload Session
+- Photo Asset
+- Upload Item
+- Photo Event
+
+V2 在此基础上增加：
+
+- Sync Batch
+- Sync Task
+- Month State History
+
+数据库负责保存系统状态和历史数据。
+
+日志负责记录运行过程和状态变化过程。
+
+两者职责不同，日志不能替代数据库。
+
+---
+
+## 20. 时间规范
+
+整个项目统一使用：
+
+```text
+上海时区语义
+YYYY-MM-DD HH:MM:SS
+```
+
+时间字段的具体使用方式和数据库字段定义，以对应版本的 Spec 为准。
+
+---
+
+## 21. 当前项目范围
 
 ### 本项目负责
 
-- 照片上传
-- 照片重复检测
-- 元数据处理
+- 局域网照片上传
+- Upload Session
+- 重复预检
+- SHA-256
+- EXIF / 元数据处理
 - 照片日期归档
-- R5S 本地照片管理
+- R5S 本地照片存储
 - SQLite 数据管理
-- 日志和任务状态
+- Processing Worker
+- 结构化日志
 - R5S → NAS 同步
+- Sync Batch / Sync Task
 - 同步历史记录
-- R5S 历史数据清理
+- Month State History
+- Failure Cycle
+- ABNORMAL 故障隔离
+- 人工 Retry
+- R5S 历史照片 Cleanup
 
 ### 本项目不负责
 
@@ -422,65 +993,65 @@ Immich 只读取照片库，不参与照片导入和同步流程。
 - AI 照片分类
 - 公网照片服务
 - 云端照片同步
-- NAS 操作系统或 RAID 管理
+- NAS 操作系统
+- NAS RAID 管理
 - NAS → R5S 反向同步
 - 双向文件同步
 - 视频管理
+- 视频上传
+- 照片编辑
+- 照片格式转换
+- 图片压缩
 
-## 9. 版本规划
+---
+
+## 22. 版本规划
 
 ```text
 V1
 │
 ├── 客户端上传
-├── 重复预检
+├── Upload Session
+├── Batch Precheck
+├── 用户确认机制
 ├── SHA-256
 ├── EXIF / 元数据
 ├── 日期归档
 ├── SQLite
 ├── Processing Worker
+├── 结构化日志
 └── R5S 本地 Photos/YYYY/YYYYMM/
-
-        ↓
-
+        │
+        ▼
 V2
 │
+├── NAS Alive Check
+├── V1 Activity Check
 ├── NAS Ready Check
-├── R5S → NAS rsync
+├── Difference Check
+├── Sync Batch
 ├── 月份级 Sync Task
-├── 同步历史
-├── V1 / V2 资源隔离
-├── Sync Phase
-├── Cleanup Phase
-└── R5S 历史月份清理
-
-        ↓
-
-Immich
+├── Failure Cycle
+├── Month State History
+├── ABNORMAL 故障隔离
+├── 人工 Retry
+├── R5S → NAS rsync over SSH
+└── R5S 历史月份 Cleanup
+        │
+        ▼
+照片管理软件
 │
 └── External Library
     └── 读取正式照片目录
 ```
 
-## 10. 设计理念
+V1 和 V2 的详细功能边界以各自版本的技术规格书为准。
 
-Photo Gateway 的核心设计原则可以概括为：
+---
 
-> **照片文件与照片管理软件解耦，照片导入与照片管理解耦，临时存储与最终存储解耦。**
+## 23. 项目文档
 
-其中最重要的是保证照片文件本身长期稳定。
-
-只要：
-
-```text
-Photos/YYYY/YYYYMM/
-```
-
-这一核心目录结构保持不变，上层使用什么照片管理软件、底层 NAS 如何演进，都不应该影响已经保存的照片。
-
-## 11. 项目文档
-
-详细设计以以下文档为准：
+项目详细设计由以下文档定义：
 
 - [V1 技术规格](docs/photo-gateway-v1-spec.md)
 - [V1 配置规格](docs/photo-gateway-v1-config-spec.md)
@@ -489,4 +1060,70 @@ Photos/YYYY/YYYYMM/
 - [V1 WebUI 规格](docs/photo-gateway-v1-webui-spec.md)
 - [V2 技术规格](docs/photo-gateway-v2-spec.md)
 
-README 只描述项目整体定位、架构和职责边界；具体实现规则以各版本 Spec 为准。
+文档职责：
+
+```text
+README
+  ↓
+项目整体定位 / 架构 / 职责 / 生命周期
+
+V1 Spec
+  ↓
+V1 功能与技术设计
+
+V1 Config Spec
+  ↓
+V1 配置规范
+
+V1 DB Spec
+  ↓
+V1 数据模型与数据库约束
+
+V1 API Spec
+  ↓
+V1 HTTP API 契约
+
+V1 WebUI Spec
+  ↓
+V1 WebUI 行为与界面规范
+
+V2 Spec
+  ↓
+NAS 同步 / Failure Cycle / Cleanup / V2 数据模型
+```
+
+README 只负责描述项目整体设计，不重复各 Spec 中的详细实现规则。
+
+**具体实现以对应版本的 Spec 为最终依据。**
+
+---
+
+## 24. 设计理念
+
+Photo Gateway 的核心设计可以概括为：
+
+> **照片文件与照片管理软件解耦，照片导入与照片同步解耦，临时存储与最终存储解耦。**
+
+整个系统最重要的长期资产不是 Photo Gateway 本身，而是照片文件以及稳定的：
+
+```text
+Photos/YYYY/YYYYMM/
+```
+
+目录结构。
+
+只要这一核心目录结构保持稳定：
+
+```text
+客户端如何变化
+    +
+Photo Gateway 如何演进
+    +
+NAS 如何变化
+    +
+上层照片管理软件如何替换
+```
+
+都不应该影响已经保存的原始照片。
+
+这也是 Photo Gateway 整个项目设计的核心目标。
