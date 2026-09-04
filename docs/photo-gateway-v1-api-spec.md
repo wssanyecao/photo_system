@@ -195,7 +195,7 @@ Content-Type: application/json
   "success": true,
   "data": {
     "token": "xxxxx",
-    "expires_at": "2026-09-03T05:30:00Z"
+    "expires_at": "2026-09-03 05:30:00"
   }
 }
 ```
@@ -498,7 +498,7 @@ POST /api/v1/upload-sessions
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "source_device": "xiaomi14",
       "status": "CREATED",
-      "created_at": "2026-09-02T00:30:00Z"
+      "created_at": "2026-09-02 00:30:00"
     }
   }
 }
@@ -556,8 +556,8 @@ GET /api/v1/upload-sessions/550e8400-e29b-41d4-a716-446655440000
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "source_device": "xiaomi14",
       "status": "PROCESSING",
-      "created_at": "2026-09-02T00:30:00Z",
-      "started_at": "2026-09-02T00:31:00Z",
+      "created_at": "2026-09-02 00:30:00",
+      "started_at": "2026-09-02 00:31:00",
       "completed_at": null,
       "total_files": 1000,
       "uploaded_files": 850,
@@ -1546,7 +1546,7 @@ source_device filter =
         "current_filename": "IMG_001.jpg",
         "file_size": 12345678,
         "mime_type": "image/jpeg",
-        "date_taken": "2026-08-31T19:32:15",
+        "date_taken": "2026-08-31 19:32:15",
         "date_source": "DateTimeOriginal",
         "archive_path": "Photos/2026/202608/IMG_001.jpg"
       }
@@ -1581,7 +1581,7 @@ GET /api/v1/photos/{photo_id}
       "current_filename": "IMG_001.jpg",
       "file_size": 12345678,
       "mime_type": "image/jpeg",
-      "date_taken": "2026-08-31T19:32:15",
+      "date_taken": "2026-08-31 19:32:15",
       "date_source": "DateTimeOriginal",
       "archive_path": "Photos/2026/202608/IMG_001.jpg",
       "exif": {
@@ -1590,8 +1590,8 @@ GET /api/v1/photos/{photo_id}
         "ImageWidth": 4080,
         "ImageHeight": 3072
       },
-      "created_at": "2026-09-02T00:35:00Z",
-      "updated_at": "2026-09-02T00:35:00Z"
+      "created_at": "2026-09-02 00:35:00",
+      "updated_at": "2026-09-02 00:35:00"
     }
   }
 }
@@ -1664,7 +1664,7 @@ photo_events
     "events": [
       {
         "event_type": "ARCHIVED",
-        "created_at": "2026-09-02T00:36:00Z"
+        "created_at": "2026-09-02 00:36:00"
       }
     ]
   }
@@ -1743,7 +1743,7 @@ GET /api/v1/system/worker
       "status": "processing",
       "item_id": 1001,
       "filename": "IMG_001.jpg",
-      "started_at": "2026-09-02T00:40:00Z"
+      "started_at": "2026-09-02 00:40:00"
     }
   }
 }
