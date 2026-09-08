@@ -115,6 +115,9 @@ label{font-size:13px;color:var(--txt);display:inline-flex;gap:6px;align-items:ce
 .stat span{color:var(--mut);font-size:12px}
 .stat.st-ok b{color:var(--ok)} .stat.st-dup b{color:var(--warn)} .stat.st-bad b{color:var(--bad)}
 .res-acts{justify-content:flex-end}
+.fail-list{margin:4px 0 10px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:12px;line-height:1.8;max-height:180px;overflow:auto}
+.fail-t{font-weight:600;color:var(--bad);margin-bottom:4px}
+.fail-list .bad{font-weight:400}
 
 /* ---------- 系统状态卡 / 同步页 ---------- */
 #sysCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:4px}
@@ -392,6 +395,7 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
         </div>
       </div>
       <div class="res-stats" id="resStats"></div>
+      <div class="fail-list hidden" id="failList"></div>
       <div class="row res-acts">
         <button id="bMore">继续上传下一批</button>
       </div>
@@ -826,14 +830,14 @@ function checkDone(){ return dupPending().length===0; }
 async function run(){
   $("Pdup").classList.add("hidden");
   $("Ptx").classList.remove("hidden");
-  const total=files.length; let n=0;
+  const total=files.length; let done=0, skipped=0; const failed=[];
   $("txTitle").textContent="上传照片";
   $("pg").max=total; $("pg").value=0; $("txStage").textContent="0 / "+total; $("stT").textContent="";
   for(const it of files){
     const skip = it.pre==="POSSIBLE_DUPLICATE" && it.conf===2;   // 用户明确跳过
     const needUpload = it.pre!=="POSSIBLE_DUPLICATE" || it.conf===1;
     if(skip){
-      n++; $("pg").value=n; $("txStage").textContent=n+" / "+total;   // 跳过也算处理进度
+      skipped++; done++; $("pg").value=done; $("txStage").textContent=done+" / "+total;
       $("txCur").textContent="已跳过 "+it.file.name;
       continue;
     }
@@ -842,12 +846,40 @@ async function run(){
     const fd=new FormData(); fd.append("file", it.file, it.file.name);
     fd.append("modified_ms", String(it.file.lastModified));   // 客户端原文件修改时间(毫秒), 无 EXIF 时作 file_mtime
     try{ await api("POST","/upload-items/"+it.item_id+"/file",undefined,fd); }
-    catch(e){ log("上传项失败 "+it.file.name+": "+e.message); }
-    n++; $("pg").value=n; $("txStage").textContent=n+" / "+total;      // 失败也计入“已处理”，汇总看失败数
+    catch(e){ failed.push({name:it.file.name, msg:e.message}); log("上传项失败 "+it.file.name+": "+e.message); }
+    done++; $("pg").value=done; $("txStage").textContent=done+" / "+total;
+  }
+  if(failed.length){
+    // 有失败：立即给明确结果与原因（不要进入“等待归档”空等——失败项停在预检态，会话不会自己结束）
+    failResult(failed, total-failed.length-skipped, skipped, total);
+    return;
   }
   $("txTitle").textContent="等待后台归档";
   $("txCur").textContent="文件已全部传输完成，正在等待 Worker 归档…";
   await pollSession();
+}
+function failResult(failed, okCnt, skipCnt, total){
+  $("Ptx").classList.add("hidden");
+  $("Pres").classList.remove("hidden");
+  const hero=$("resHero"), mark=$("resMark"), h=$("resH"), sub=$("resSub");
+  const allFail = okCnt===0;
+  hero.className="res-hero "+(allFail?"bad":"dup");
+  mark.textContent=allFail?"✕":"!";
+  h.textContent=allFail?"上传失败":"部分文件未能上传";
+  const hasType = failed.some(f=>/UNSUPPORTED_FILE_TYPE|415/.test(f.msg));
+  let tip = hasType
+    ? "至少一个文件“类型不被允许”：请在服务端配置 upload.allowed_extensions 中加入对应扩展名"
+      +"（视频如 mp4/mov/m4v/3gp/webm/mkv/avi），保存后重启服务再传。"
+    : "失败原因见下方列表（网络中断、磁盘满等）。";
+  sub.textContent=(okCnt>0?okCnt+" 个文件已上传成功，将自动归档（可到「照片」页查看）。":"")
+    +" "+tip;
+  const items=[["总文件",total,""],["成功上传",okCnt,"ok"],["跳过",skipCnt,""],["失败",failed.length,"bad"]];
+  $("resStats").innerHTML=items.map(x=>
+    '<div class="stat'+(x[2]?" st-"+x[2]:"")+'"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>').join("");
+  const fl=$("failList");
+  fl.innerHTML="<div class='fail-t'>本次未能上传：</div>"+failed.map(f=>"<div>"+esc(f.name)+" <span class='bad'>"+esc(f.msg)+"</span></div>").join("");
+  fl.classList.remove("hidden");
+  $("bMore").textContent="返回重新选择";
 }
 async function pollSession(){ const t=Date.now()+120000;
   while(Date.now()<t){ await new Promise(r=>setTimeout(r,2500));
