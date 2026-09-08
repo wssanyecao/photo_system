@@ -694,7 +694,9 @@ window.tryRetry=async m=>{
 };
 
 async function init(){
-  try{const j=await api("GET","/devices");const sel=$("device");sel.innerHTML="";for(const d of j.data.devices.filter(x=>x.enabled)){const o=new Option(d.name+" ("+d.id+")",d.id);sel.add(o);}device=sel.value;}catch(e){log("设备加载失败 "+e.message);return;}
+  try{const j=await api("GET","/devices");const sel=$("device");sel.innerHTML="";for(const d of j.data.devices.filter(x=>x.enabled)){const o=new Option(d.name+" ("+d.id+")",d.id);sel.add(o);}device=sel.value;
+      // 用户切换设备下拉时同步全局，避免上传仍用默认第一台（修复：曾恒用首设备）
+      sel.addEventListener("change",()=>{ device=sel.value; });}catch(e){log("设备加载失败 "+e.message);return;}
   try{const j=await api("GET","/system/status");log("系统：assets="+ (j.data.counts.assets)+" worker="+j.data.worker.status);}catch(e){}
   log("就绪");
 }
@@ -781,7 +783,7 @@ function resetUpload(){
 $("bPre").onclick=async()=>{
   if(!pickFiles.length){ alert("请先选择照片"); return; }
   files=pickFiles.map(f=>({file:f,pre:null,conf:0,item_id:null}));
-  const dev=device||($("device").value); if(!dev){alert("请先选择照片来源设备");return;}
+  const dev=$("device").value||device; if(!dev){alert("请先选择照片来源设备");return;}
   enterUpload();
   const total=files.length;
   $("txTitle").textContent="检测与查重";
