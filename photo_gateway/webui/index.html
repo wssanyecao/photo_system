@@ -863,7 +863,7 @@ function summary(s){
   const hero=$("resHero"), mark=$("resMark"), h=$("resH"), sub=$("resSub");
   if(!s){
     hero.className="res-hero dup"; mark.textContent="…"; h.textContent="归档仍在后台进行";
-    sub.textContent="上传已完成、归档仍在后台处理（本次批次号 "+sessionId+"）。稍后可到「照片」页查看。";
+    sub.textContent="上传已完成，但归档仍在后台处理（批次号 "+sessionId+"）。若长时间没有进展，请到「说明」页查看技术日志，或到「系统」页确认后台处理状态后再试。";
     $("resStats").innerHTML=""; return;
   }
   if(s.status==="COMPLETED"){
