@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from . import heif as _heif_support
+_heif_support.register()
 
 _THUMBNAIL_MAX = 256
 _QUALITY = 82

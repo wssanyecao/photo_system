@@ -308,6 +308,8 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
         object-fit:contain;border-radius:6px;background:#000;box-shadow:0 14px 44px rgba(0,0,0,.55)}
 #lbxVid{max-width:100%;max-height:calc(96vh - 52px);margin:0 auto;border-radius:6px;background:#000;
         box-shadow:0 14px 44px rgba(0,0,0,.55)}
+.ph-unav{width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;
+         background:#eef1f6;color:#94a3b8;font-size:12px;padding:8px;text-align:center;box-sizing:border-box}
 .ph-video{position:absolute;right:6px;bottom:24px;width:22px;height:22px;border-radius:50%;
           background:rgba(15,23,42,.72);color:#fff;font-size:11px;display:flex;align-items:center;
           justify-content:center;pointer-events:none}
@@ -1010,13 +1012,14 @@ async function loadPhotos(page){ try{
       // 视频：浏览器解码显示首帧（metadata 模式）+ ▶ 角标，无需服务端缩略图
       const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.preload="metadata";
       v.src=addInline(ph.file_url||(API+"/photos/"+ph.id+"/file"));
+      v.onerror=()=>markUnav(a);
       const bd=document.createElement("span"); bd.className="ph-video"; bd.textContent="▶";
       a.appendChild(v); a.appendChild(bd); a.appendChild(cap); g.appendChild(a);
     } else {
       const img=document.createElement("img"); img.loading="lazy";
       img.alt=ph.current_filename||("photo-"+ph.id); img.src=ph.thumbnail_url||(API+"/photos/"+ph.id+"/thumbnail");
-      // 兜底：若仍加载失败(本地缺失/服务端未及时过滤)则隐藏该项，避免破图
-      img.onerror=()=>{ const anc=img.closest("a"); if(anc) anc.style.display="none"; };
+      // 兜底：加载失败（浏览器不支持该格式/本地缺失）→ 显示“无法预览”占位，不整卡消失
+      img.onerror=()=>markUnav(a);
       a.appendChild(img); a.appendChild(cap); g.appendChild(a);
     }
   }
@@ -1043,6 +1046,15 @@ $("bFilter").onclick=()=>loadPhotos(0);
 
 /* ---- 原图/视频预览灯箱（file 端点 inline=1 内联；视频走 <video>，已验证支持 Range） ---- */
 function addInline(u){ return u+(u.indexOf("?")>=0?"&":"?")+"inline=1"; }
+/* 网格项加载失败占位（HEIC 等在非 Safari 浏览器 / 视频编码不支持时） */
+function markUnav(anc){
+  if(!anc||anc.dataset.unav) return; anc.dataset.unav="1";
+  const med=anc.querySelector("img,video"); if(med) med.remove();
+  const badge=anc.querySelector(".ph-video"); if(badge) badge.remove();
+  const ph=document.createElement("div"); ph.className="ph-unav";
+  ph.innerHTML="<span>无法预览</span>";
+  anc.appendChild(ph);
+}
 function isVideoPh(ph){ return (ph.mime_type||"").startsWith("video/")
   || /\.(mp4|mov|m4v|3gp|webm|mkv|avi)$/i.test(ph.current_filename||""); }
 function openLbx(ph){
@@ -1056,6 +1068,9 @@ function openLbx(ph){
   } else {
     vid.pause(); vid.removeAttribute("src"); vid.classList.add("hidden");
     img.classList.remove("hidden"); img.src=base;   // <img> 渲染不受 attachment 头影响
+    img.onerror=()=>{ img.onerror=null;
+      const nm=$("lbxName");
+      if(nm&&nm.textContent.indexOf("（")<0) nm.textContent+="（浏览器无法预览该格式：HEIC 等请用 Safari，或点右上“新窗口打开原图”下载查看）"; };
   }
   $("lbx").classList.remove("hidden");
   document.body.style.overflow="hidden";

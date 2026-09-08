@@ -22,6 +22,8 @@ from pathlib import Path
 
 from .config import V1Config
 
+from . import heif as _heif_support
+_heif_support.register()        # 可选：HEIC/HEIF 解码（安装 pillow-heif 后生效）
 SH = timezone(timedelta(hours=8))
 
 
