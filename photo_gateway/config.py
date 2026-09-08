@@ -99,10 +99,12 @@ class _StorageConfig(BaseModel):
         return self.resolve(self.logs)
 
 
-# spec 推荐扩展名集合（config-spec §4 基线 + §28）
+# spec 推荐扩展名集合（config-spec §4 基线 + §28；视频支持见 config-spec §63.4）
 DEFAULT_ALLOWED_EXTENSIONS: List[str] = [
     "jpg", "jpeg", "png", "heic", "heif", "webp",
     "tif", "tiff", "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2",
+    # 视频（上传/归档/同步；网页内预览播放见 README“视频”说明）
+    "mp4", "mov", "m4v", "3gp", "webm", "mkv", "avi",
 ]
 
 # spec 日期优先级默认（config-spec §35 / v1-spec §30）

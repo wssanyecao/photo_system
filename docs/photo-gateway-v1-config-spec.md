@@ -2104,3 +2104,23 @@ thumbnails:
 - 仅清理缓存目录内 `*.jpg`；缩略图为非正式库，删除后下次访问自动重建，不影响 `photo_assets`。
 
 ---
+## 63.4 视频文件支持（V1.4 追加，feature/video-support）
+
+默认 `upload.allowed_extensions` 集合在图片/Raw 基础上追加视频扩展名：
+
+```text
+mp4  mov  m4v  3gp  webm  mkv  avi
+```
+
+语义约定（与 §28 等正文冲突时以本节为准）：
+
+- **归档时间**：视频不读 EXIF；优先读取 QuickTime 容器（MP4/MOV/M4V/3GP）`moov/mvhd` 的创建时间
+  （≈拍摄/编码时间，1904-epoch），映射为 `date_source=CreateDate`；读取失败或年份异常
+  （如 mvhd=0、无 moov、非 1990-2100 区间）→ 按既有规则回退 `file_mtime`。解析为纯 Python、
+  零外部依赖，仅读取文件头/尾窗口（低性能设备友好）。
+- **同步/去重/清理**：与图片一致，按字节单向同步、SHA 去重；不做转码，不修改原文件。
+- **网页展示**：照片页视频项以浏览器首帧（`<video preload="metadata">`）+ 视频角标显示，
+  灯箱内直接播放（文件接口支持 HTTP Range 分块）；服务端**不**为视频生成缩略图缓存。
+- 各浏览器对视频编码（如 HEVC）支持不同，仅影响“网页内播放”，不影响上传/归档/同步。
+
+---
