@@ -48,6 +48,109 @@ def guess_mime(filename: str) -> str:
     return mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
+# ---------------------------------------------------------------------------
+# 视频元数据时间（MP4/MOV/M4V/3GP 的 QuickTime moov/mvhd，零外部依赖）
+# ---------------------------------------------------------------------------
+_VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".webm", ".mkv", ".avi"}
+_QT_EPOCH = datetime(1904, 1, 1, tzinfo=timezone.utc)
+_VIDEO_SCAN_WINDOW = 4 * 1024 * 1024   # 只读文件头/尾窗口，避免整读大视频
+
+
+def _is_video_path(path: Path) -> bool:
+    """按扩展名判断是否为已支持视频（用于归档日期分流，不承担 MIME 判定）。"""
+    return Path(path).suffix.lower() in _VIDEO_EXTS
+
+
+def _video_windows(path: Path) -> list[bytes]:
+    """读取(头/尾)两个 ≤4MB 窗口用于容器解析（覆盖 faststart 与 moov 后置两种布局）。"""
+    size = path.stat().st_size
+    out = []
+    with open(path, "rb") as fh:
+        if size <= _VIDEO_SCAN_WINDOW * 2:
+            out.append(fh.read())
+        else:
+            out.append(fh.read(_VIDEO_SCAN_WINDOW))
+            fh.seek(max(0, size - _VIDEO_SCAN_WINDOW))
+            out.append(fh.read())
+    return out
+
+
+def _box_by_type(blob: bytes, box_type: bytes, start: int = 0) -> bytes | None:
+    """在 blob 中按 box 链找到指定 type，返回其 payload（size 字段之后）。找不到返回 None。"""
+    n = len(blob)
+    i = start
+    while i + 8 <= n:
+        size = int.from_bytes(blob[i:i + 4], "big")
+        typ = blob[i + 4:i + 8]
+        hdr = 8
+        if size == 1 and i + 16 <= n:          # largesize(64bit)
+            size = int.from_bytes(blob[i + 8:i + 16], "big")
+            hdr = 16
+        if size < hdr or i + size > n:
+            return None                        # 越界/被窗口截断
+        if typ == box_type:
+            return blob[i + hdr:i + size]
+        i += size
+    return None
+
+
+def _find_moov(blob: bytes) -> bytes | None:
+    """取 moov payload：优先按 box 链（可含 ftyp/mdat 顺序）；失败则回退字节搜索 moov（非 faststart 时 moov 可能被 mdat 截在窗口外）。"""
+    p = _box_by_type(blob, b"moov")
+    if p is not None:
+        return p
+    i = blob.find(b"moov")
+    if i >= 8:
+        size = int.from_bytes(blob[i - 4:i], "big")
+        if 8 <= size and i - 4 + size <= len(blob):
+            return blob[i + 4:i - 4 + size]
+    return None
+
+
+def _mvhd_times(blob: bytes) -> tuple[int, int] | None:
+    """从 moov payload 中找 mvhd，返回 (creation, modification) 的 1904-epoch 秒。"""
+    p = _box_by_type(blob, b"mvhd")
+    if p is None:
+        j = blob.find(b"mvhd")
+        if j >= 12:
+            size = int.from_bytes(blob[j - 4:j], "big")
+            if 8 <= size and j + 8 + size <= len(blob):
+                p = blob[j + 8:j - 4 + size]
+    if not p or len(p) < 4:
+        return None
+    ver = p[0]
+    if ver == 0:
+        if len(p) < 12:
+            return None
+        return int.from_bytes(p[4:8], "big"), int.from_bytes(p[8:12], "big")
+    if len(p) < 20:
+        return None
+    return (int.from_bytes(p[4:12], "big"), int.from_bytes(p[12:20], "big"))
+
+
+def _video_date_string(path: Path) -> str | None:
+    """读取视频容器创建时间（≈拍摄/编码时间）为上海墙钟 ISO；失败或年份异常返回 None（交由 file_mtime 兜底）。
+
+    仅解析 QuickTime(mp4/mov/m4v/3gp) 的 moov/mvhd，CPU/内存开销极小，适合低性能设备；
+    其它容器（webm/mkv/avi 等）通常无可靠“拍摄时间”，自然回退文件时间。
+    """
+    try:
+        for blob in _video_windows(path):
+            moov = _find_moov(blob)
+            if moov is None:
+                continue
+            t = _mvhd_times(moov)
+            if t is None:
+                continue
+            dt = _QT_EPOCH + timedelta(seconds=t[0])
+            if not (1990 <= dt.year <= 2100):
+                continue
+            return dt.astimezone(SH).strftime("%Y-%m-%dT%H:%M:%S")
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 # EXIF 日期 tag（Pillow getexif 顶层=IFD0；0x9003/0x9004 位于 EXIF 子 IFD(0x8769)）
 _EXIF_TAG_DATETIME = 0x0132            # DateTime（IFD0/顶层）
 _EXIF_TAG_EXIF_IFD = 0x8769            # EXIF 子 IFD 指针
@@ -392,7 +495,16 @@ def _archive_rel(archive_root: Path, final: Path) -> str:
 
 
 def _resolve_archive_dir(cfg: V1Config, img: Path):
-    """按 date_priority 推月目录 (YYYYMM)、date_taken、date_source。"""
+    """按 date_priority 推月目录 (YYYYMM)、date_taken、date_source。
+
+    视频：优先读容器创建时间（≈拍摄时间），映射为 CreateDate；读取失败则走默认逻辑
+    （EXIF 步骤对视频恒失败，最终回退 file_mtime）。图片保持 EXIF→…→file_mtime 顺序。
+    """
+    if _is_video_path(img):
+        v = _video_date_string(img)
+        if v:
+            dt = datetime.fromisoformat(v)
+            return dt.strftime("%Y%m"), v, "CreateDate"
     priority = list(cfg.metadata.date_priority)
     # 未配置到 priority 时的默认源
     default_order = ["DateTimeOriginal", "CreateDate", "ModifyDate", "file_mtime"]

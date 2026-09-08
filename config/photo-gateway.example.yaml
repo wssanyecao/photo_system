@@ -64,6 +64,14 @@ upload:
     - raf
     - orf
     - rw2
+    # 视频（可上传/归档并同步到 NAS；网页内可用首帧预览与播放）
+    - mp4
+    - mov
+    - m4v
+    - 3gp
+    - webm
+    - mkv
+    - avi
   tmp_cleanup:
     enabled: true
     max_age_days: 7

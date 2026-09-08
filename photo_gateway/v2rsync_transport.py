@@ -30,6 +30,7 @@ class RsyncNas:
     def _ssh_base(self) -> list[str]:
         args = ["ssh", "-p", str(self.nas.ssh_port), "-i", self.nas.ssh_key,
                 "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                "-o", "ControlMaster=no",     # 禁用 ControlMaster：不依赖/绑定 ~/.ssh/con-* socket
                 f"{self.nas.ssh_user}@{self.nas.host}"]
         return args
 
@@ -40,7 +41,8 @@ class RsyncNas:
         若把 `user@host` 拼进 rsh，远端主机名会被 shell 当命令执行（rc 127）。
         """
         return ["ssh", "-p", str(self.nas.ssh_port), "-i", self.nas.ssh_key,
-                "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]
+                "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                "-o", "ControlMaster=no"]
 
     def _target_remote(self, rel: str) -> str:
         # remote = user@host:/.../Photos/YYYY/YYYYMM
