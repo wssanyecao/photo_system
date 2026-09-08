@@ -121,9 +121,18 @@ def create_app(cfg, db_conn=None, db_path=None, dirs=None, logman=None) -> FastA
                             run_round(c, cfg, dirs, logman)   # logman=None 时静默（测试场景）
                         finally:
                             c.close()
-                    except Exception:
-                        pass  # 单次失败不中断 worker；由日志层/恢复兜底
-                    await asyncio.sleep(2)
+                    except Exception as exc:
+                        # 单次失败不中断 worker；但异常必须落日志（此前静默，
+                        # 导致 R5S 等环境“上传后一直等待归档却无任何日志可查”）
+                        if logman is not None:
+                            try:
+                                logman.processing().error(
+                                    "v1 worker round error",
+                                    event="v1_worker_error", error=str(exc),
+                                    exc_info=True)
+                            except Exception:
+                                pass
+                    await asyncio.sleep(2)   # 必须在 while 主体（正常/异常路径都睡眠，避免空转占满事件循环）
 
             _worker = asyncio.create_task(_tick())
 

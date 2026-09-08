@@ -405,7 +405,7 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     if not src.exists():
         # incoming 丢失：状态 FAILED 告警（重启恢复留阶段5兜底）
         _mark_item_failed(conn, item_id, "FILE_MISSING", "incoming file missing")
-        return {"item_id": item_id, "status": "FAILED"}
+        return {"item_id": item_id, "status": "FAILED", "error_message": "incoming file missing"}
 
     sha = compute_sha256(src)
     existing = conn.execute(
@@ -446,7 +446,7 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     if yyyymm is None:
         _mark_item_failed(conn, item_id, "NO_DATE",
                           "cannot determine archive month")
-        return {"item_id": item_id, "status": "FAILED"}
+        return {"item_id": item_id, "status": "FAILED", "error_message": "cannot determine archive month"}
 
     archive_dir = archive_root / yyyymm[:4] / yyyymm
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -461,7 +461,7 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
         shutil.move(str(src), str(final))
     except OSError as exc:
         _mark_item_failed(conn, item_id, "ARCHIVE_MOVE_FAILED", str(exc))
-        return {"item_id": item_id, "status": "FAILED"}
+        return {"item_id": item_id, "status": "FAILED", "error_message": str(exc)}
     # 磁盘 mtime 与资产时间保持一致（无 EXIF 照片供 Immich/NAS mtime 兜底）
     set_file_mtime_from(final, date_taken)
 
@@ -564,12 +564,21 @@ def run_round(conn, cfg, dirs, log) -> dict:
         dirs["archive"], item, log,
     )
     status = res["status"]
-    log and log.processing().info(
-        "item processed", event="processing_completed",
-        photo_id=item["id"], status=status,
-        filename=item["original_filename"],
-        session_id=item["session_id"],
-    )
+    if log is not None:
+        if status == "FAILED":
+            log.processing().error(
+                "item failed", event="processing_failed",
+                photo_id=item["id"], status=status,
+                filename=item["original_filename"],
+                session_id=item["session_id"],
+                error=(res.get("error_message") or "see upload_items.error_message"))
+        else:
+            log.processing().info(
+                "item processed", event="processing_completed",
+                photo_id=item["id"], status=status,
+                filename=item["original_filename"],
+                session_id=item["session_id"],
+            )
     _finalize_session(conn, item["session_id"])
     return {"processed": 1, **res}
 
