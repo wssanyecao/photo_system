@@ -443,6 +443,7 @@ def system_status(req: Request, authorization: str = Header(default=None)):
     return {"success": True, "data": {
         "storage": storage, "counts": counts,
         "worker": {"status": "running", "mode": "background-ticker"},
+        "allowed_extensions": list(cfg.upload.allowed_extensions),
     }}
 
 
