@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Gateway — 照片网关</title>
+<style>
+/* ---------- 设计变量（浅色清爽） ---------- */
+:root{
+  --brand:#2563eb; --brand-d:#1d4ed8; --brand-bg:#eef2ff;
+  --bg:#eef1f6; --panel:#ffffff; --line:#e2e8f0; --line2:#cbd5e1;
+  --txt:#0f172a; --mut:#64748b;
+  --ok:#16a34a; --warn:#b45309; --bad:#dc2626;
+  --radius:12px;
+  --shadow:0 1px 3px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+  --shadow-lg:0 8px 24px rgba(15,23,42,.10);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:system-ui,-apple-system,'PingFang SC','Noto Sans SC',sans-serif;
+     background:linear-gradient(180deg,#f4f6fb 0%,#e9edf4 100%);background-attachment:fixed;
+     color:var(--txt);line-height:1.55;-webkit-tap-highlight-color:transparent}
+
+/* ---------- 头部 / 导航（桌面：标题左·导航严格居中） ---------- */
+header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);
+       border-bottom:1px solid var(--line);padding:10px clamp(10px,3vw,28px);
+       box-shadow:0 1px 0 rgba(15,23,42,.02);
+       display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+header h1{margin:0;font-size:16px;white-space:nowrap;justify-self:start}
+nav{display:flex;gap:2px;justify-self:center}
+nav a{color:var(--brand-d);text-decoration:none;padding:7px 14px;border-radius:9px;font-size:14px;transition:background .15s,color .15s}
+nav a:hover{background:var(--brand-bg)}
+nav a.active{font-weight:700;background:var(--brand);color:#fff}
+
+/* ---------- 布局 / 卡片（桌面随浏览器宽度弹性缩放，上限 1700） ---------- */
+main{width:min(100%,1700px);margin:0 auto;padding:20px clamp(16px,2.6vw,44px)}
+.panel{background:var(--panel);border:1px solid #e2e8f0;border-radius:var(--radius);
+       padding:18px 22px;margin-bottom:18px;overflow:hidden;position:relative}
+.panel-title{border-bottom:1px solid var(--line);
+             margin:-18px -22px 14px;padding:11px 22px 9px;
+             display:flex;align-items:center;gap:10px;
+             background:linear-gradient(180deg,#f6f8fd,#eef2fb)}
+.panel-title::before{content:"";flex:none;width:4px;height:17px;border-radius:3px;
+                     background:linear-gradient(180deg,var(--brand),var(--brand-d))}
+.panel-title b{font-size:15px;letter-spacing:.2px}
+.panel-title .dim{font-size:12px}
+.panel-title button:last-child,.panel-title a:last-child{margin-left:auto}
+.panel-title .ghost{padding:6px 13px;font-size:13px}
+.panel>.row:first-child:not(.panel-title){margin-top:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.row b{font-size:15px}
+
+/* ---------- 表单 / 按钮（触控友好） ---------- */
+button{background:var(--brand);color:#fff;border:0;border-radius:9px;padding:10px 16px;
+       cursor:pointer;font-size:14px;transition:background .15s,transform .05s}
+button:hover{background:var(--brand-d)}
+button:active{transform:translateY(1px)}
+button.ghost{background:#fff;color:var(--brand-d);border:1px solid var(--brand-d)}
+button.ghost:hover{background:var(--brand-bg)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+input[type=text],input[type=password],input[type=date],select{
+  padding:9px 10px;border:1px solid var(--line2);border-radius:9px;background:#fff;color:var(--txt);font-size:14px}
+input[type=file]{font-size:13px;color:var(--mut);max-width:100%}
+label{font-size:13px;color:var(--txt);display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.actions-upload{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.actions-upload>input[type=file]{flex:1 1 220px}
+.actions-upload .lbl{color:var(--mut);font-size:13px}
+
+/* ---------- 自定义文件选择卡片 ---------- */
+.sr-file{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.picker{margin:10px 0 2px;display:flex;align-items:center;gap:14px;cursor:pointer;
+        border:1.5px dashed var(--line2);border-radius:14px;padding:16px 18px;
+        background:#fbfcfe;transition:border-color .15s,background .15s}
+.picker:hover,.picker.drag{border-color:var(--brand);background:var(--brand-bg)}
+.pk-ico{flex:none;width:38px;height:38px;border-radius:10px;background:var(--brand-bg);color:var(--brand);
+        display:flex;align-items:center;justify-content:center}
+.pk-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pk-main{font-size:15px;font-weight:600;color:var(--txt)}
+.pk-sub{font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.pk-badge{flex:none;margin-left:auto;min-width:30px;height:30px;padding:0 8px;border-radius:20px;
+          background:var(--brand);color:#fff;font-size:13px;font-weight:700;
+          display:flex;align-items:center;justify-content:center}
+.pickmeta{margin:4px 0 6px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.pickmeta .dim{word-break:break-all}
+.pickmeta .pm-acts{display:inline-flex;gap:8px;align-items:center}
+#pickNote{font-size:12px}
+#pickListWrap{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;margin:4px 0 2px}
+#pickList{list-style:none;margin:0;padding:0}
+#pickList li{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line)}
+#pickList li:last-child{border-bottom:0}
+#pickList li:hover{background:#f8fafc}
+.pk-file-ico{flex:none;min-width:44px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.3px;
+             color:var(--brand-d);background:var(--brand-bg);border-radius:7px;padding:5px 6px}
+.pk-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pk-size{flex:none;color:var(--mut);font-size:12px;white-space:nowrap}
+.pk-del{flex:none;border:0;background:transparent;color:var(--mut);font-size:15px;line-height:1;
+        padding:4px 8px;border-radius:7px;cursor:pointer}
+.pk-del:hover{background:#fee2e2;color:var(--bad)}
+
+/* ---------- 传输进度 / 结果卡 ---------- */
+#Ptx progress{width:100%;height:18px;accent-color:var(--brand)}
+.tx-line{font-size:15px;font-weight:600;margin:12px 0 4px;word-break:break-all}
+.res-hero{display:flex;gap:14px;align-items:center;padding:16px 18px;border-radius:12px;margin-bottom:12px}
+.res-hero.ok{background:linear-gradient(135deg,#22a55f,#15803d)}
+.res-hero.dup{background:linear-gradient(135deg,#e0a02e,#b45309)}
+.res-hero.bad{background:linear-gradient(135deg,#e5484d,#b91c1c)}
+.res-hero.ok,.res-hero.dup,.res-hero.bad{color:#fff}
+.res-mark{flex:none;width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.22);
+          display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800}
+.res-title{font-size:20px;font-weight:800}
+.res-hero .dim{color:rgba(255,255,255,.85)}
+.res-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px;margin:12px 0 14px}
+.stat{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 8px;text-align:center}
+.stat b{display:block;font-size:22px;line-height:1.2}
+.stat span{color:var(--mut);font-size:12px}
+.stat.st-ok b{color:var(--ok)} .stat.st-dup b{color:var(--warn)} .stat.st-bad b{color:var(--bad)}
+.res-acts{justify-content:flex-end}
+
+/* ---------- 系统状态卡 / 同步页 ---------- */
+#sysCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:4px}
+.sc{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.sc.wide{grid-column:1 / -1}
+.sc h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sc-num{font-size:26px;font-weight:800;line-height:1.2}
+.meter{height:8px;border-radius:6px;background:#e5e9f0;overflow:hidden;margin:8px 0 4px}
+.meter i{display:block;height:100%;background:var(--ok);transition:width .4s}
+.meter.warn i{background:#d97706}.meter.crit i{background:#ea580c}.meter.stop i{background:var(--bad)}
+.sc-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:13px}
+.sc-row b{font-weight:600}
+.sc-help{font-size:12px;color:var(--mut);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;line-height:1.6}
+.sync-summary{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:2px 0 8px}
+.sm-item{display:flex;align-items:baseline;gap:6px;background:#f8fafc;border:1px solid var(--line);border-radius:9px;padding:7px 13px}
+.sm-item b{font-size:19px;color:var(--brand-d)}
+.sm-item span{font-size:12px;color:var(--mut)}
+.sync-help{margin:0 0 10px;color:var(--mut);font-size:12px;line-height:1.8;border-left:3px solid var(--line2);padding-left:12px}
+.sync-help div{margin:1px 0}
+
+/* 同步页：门控状态卡 */
+#syncGates{margin:2px 0 4px}
+.gc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+.gc-row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap}
+.gc-row:last-of-type{border-bottom:0}
+.gc-name{flex:none;width:185px;font-weight:600}
+.gc-txt{flex:1;min-width:220px;color:var(--mut);line-height:1.6}
+.gc-foot{padding:9px 14px;background:#f8fafc;font-size:12px;color:var(--mut);border-top:1px solid var(--line)}
+
+/* 同步页：子标题（月份明细 / 最近批次） */
+.sub-head{display:flex;align-items:center;gap:8px;margin:18px -22px 10px;padding:10px 22px;
+          background:linear-gradient(180deg,#f8fafc,#f1f5f9);border-top:1px solid var(--line);
+          border-bottom:1px solid var(--line)}
+.sub-head::before{content:"";flex:none;width:4px;height:14px;border-radius:3px;background:var(--brand)}
+.sub-head b{font-size:14px}
+.sub-head .dim{margin-left:auto;font-size:12px}
+
+/* ---------- 月份明细表：自动布局，长内容允许断词换行（不撑出横向滚动） ---------- */
+.mwrap table{width:100%}
+.mwrap th{white-space:normal}
+.mwrap th,.mwrap td{overflow-wrap:anywhere;word-break:break-word}
+.mwrap td{white-space:normal;vertical-align:top}
+.mwrap td:nth-child(2),.mwrap th:nth-child(2){white-space:nowrap;overflow-wrap:normal}   /* 状态徽标不折行 */
+.mwrap td:nth-child(9),.mwrap th:nth-child(9){white-space:nowrap;overflow-wrap:normal}   /* 操作按钮不折行 */
+.mwrap th{background:#f8fafc}
+@media (max-width:900px){
+  .mwrap th:nth-child(4),.mwrap td:nth-child(4){white-space:nowrap}
+}
+
+/* 可排序表头 / 分页条 */
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--brand-d)}
+.tp{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 4px;flex-wrap:wrap}
+.tp .ghost{padding:5px 12px;font-size:12px}
+@media (max-width:640px){ .gc-name{width:120px} .sub-head{margin:14px -12px 8px;padding:9px 12px} }
+.st-badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;color:#fff;background:#94a3b8;white-space:nowrap}
+.st-badge.NORMAL{background:var(--ok)}
+.st-badge.ABNORMAL{background:var(--bad)}
+.st-badge.RETRY_REQUESTED{background:#d97706}
+@media (max-width:640px){ .sc{padding:12px} }
+
+
+/* ---------- 照片页：日期筛选（快捷 chips + 起止输入 + 操作分离） ---------- */
+.datebar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+         gap:10px 14px;margin:2px 0 6px}
+.db-field{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.db-label{font-size:13px;color:var(--mut)}
+.db-sep{color:var(--line2);font-size:13px}
+.db-quick{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line2);background:#fff;color:var(--txt);padding:6px 13px;
+      border-radius:20px;font-size:13px;min-height:auto}
+.chip:hover{background:var(--brand-bg);border-color:var(--brand);color:var(--brand-d)}
+.chip.active{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.chip.active:hover{background:var(--brand-d);color:#fff}
+.db-extra{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:20px;background:#fff;padding:2px;gap:2px}
+.seg .chip{border:0;border-radius:18px;background:transparent;color:var(--txt)}
+.seg .chip:hover{background:var(--brand-bg);color:var(--brand-d)}
+.seg .chip.active{background:var(--brand);color:#fff}
+.seg .chip.active:hover{background:var(--brand-d);color:#fff}
+.pg-size{display:inline-flex;gap:5px;align-items:center;margin-right:4px}
+#pgSel{padding:5px 8px;min-height:32px;font-size:13px;border-radius:8px;border:1px solid var(--line2)}
+
+
+/* ---------- 表格（窄屏横向滚动由 .tblwrap 承接） ---------- */
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;vertical-align:top}
+th{background:#f8fafc;color:var(--mut);font-weight:600;white-space:nowrap}
+tbody tr:hover td{background:#f8fafc}
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* 说明：滚动只交给表格自身的 .tblwrap；不要在同时包含负边距子标题(#syncTable/#syncBatches)的容器上加 overflow，
+   否则子标题的全宽色带会造成恒定的微小横向溢出滚动条。 */
+
+/* ---------- 文本 / 状态色 / 徽标 ---------- */
+.ok{color:var(--ok);font-weight:600}.dup{color:var(--warn);font-weight:600}
+.bad{color:var(--bad);font-weight:600}.dim{color:var(--mut);font-size:12px}
+.mono{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+.state{padding:3px 10px;border-radius:20px;color:#fff;font-size:12px;font-weight:600;display:inline-block}
+.s-normal{background:var(--ok)}.s-warning{background:#ca8a04}.s-critical{background:#ea580c}.s-stop{background:var(--bad)}
+#log{background:#0f172a;color:#86efac;font:11px ui-monospace,Menlo,monospace;padding:10px;border-radius:10px;
+     max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.hidden{display:none}
+
+/* ---------- 照片网格 ---------- */
+#phGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+#phGrid a{display:block;text-decoration:none;background:#f4f5f7;border:1px solid var(--line);
+          border-radius:10px;overflow:hidden;transition:transform .15s,box-shadow .15s}
+#phGrid a:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+#phGrid img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;background:#e2e8f0}
+#phGrid .dim{display:block;padding:4px 8px;font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty-state{grid-column:1 / -1;padding:38px 12px;text-align:center;color:var(--mut);font-size:14px;
+             background:#fafbfc;border:1px dashed var(--line2);border-radius:12px;white-space:nowrap}
+#pgBar{margin-top:12px;align-items:center;gap:10px}
+progress{width:260px;height:16px;accent-color:var(--brand)}
+img.thm{max-width:80px;max-height:70px;border-radius:6px;margin:3px}
+
+/* ---------- 响应式：窄桌面 / 平板（≤900px） ---------- */
+@media (max-width:900px){
+  main{padding:14px 12px}
+  header{gap:10px}
+  #phGrid{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}
+}
+
+/* ---------- 响应式：手机（≤640px）：单列、横滚表格、紧凑网格 ---------- */
+@media (max-width:640px){
+  header{grid-template-columns:1fr;gap:6px;padding:8px 10px}
+  header h1{font-size:15px}
+  nav{width:100%;justify-self:stretch;flex-wrap:nowrap;overflow-x:auto;gap:4px;padding-bottom:2px}
+  nav a{white-space:nowrap;padding:8px 11px}
+  .panel-title{margin:-12px -12px 10px;padding:10px 12px}
+  main{padding:10px}
+  .panel{padding:12px;border-radius:10px;margin-bottom:12px}
+  .row{gap:7px;margin:7px 0}
+  /* 主操作纵向堆叠，全宽易触控 */
+  .actions-upload{flex-direction:column;align-items:stretch}
+  .actions-upload>*{width:100%;min-height:42px}
+  input[type=file]{min-height:42px}
+  /* 疑似重复操作按钮行 */
+  #Pdup .row .ghost,#Pdup .row button{flex:1 1 auto}
+  /* 日期筛选（手机：纵向分组，chips 可横向滚动） */
+  .datebar{flex-direction:column;align-items:stretch}
+  .db-field input[type=date]{flex:1 1 auto;min-height:40px;min-width:0}
+  .db-field #bFilter{min-height:40px}
+  .db-quick{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+  .chip{white-space:nowrap}
+  /* 表格窄屏横向滚动（同步页/疑似重复） */
+  .tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #syncTable table{min-width:620px}
+  #dupRows{display:table-row-group}
+  /* 照片网格更密集 */
+  #phGrid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin-top:10px}
+  #phGrid .dim{font-size:10px;padding:3px 6px}
+  #phGrid img{border-radius:0 0 0 0}
+  th,td{padding:6px 8px;font-size:12px}
+  progress{width:100%}
+  .mono{font-size:11px}
+  #log{max-height:150px}
+}
+
+/* ---------- 超小屏（≤400px）：更小照片格 ---------- */
+@media (max-width:400px){
+  #phGrid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+  nav a{padding:8px 9px;font-size:13px}
+}
+
+/* ---------- 说明页（原理 / 运维命令） ---------- */
+.help-steps{display:grid;gap:0}
+.hs{display:grid;grid-template-columns:180px 1fr;gap:4px 16px;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.7}
+.hs:last-child{border-bottom:0}
+.hs b{color:var(--brand-d)}
+.hs code{font:12px ui-monospace,Menlo,monospace;background:#f1f5f9;border-radius:4px;padding:0 4px}
+table.ops td,table.ops th{font-size:12.5px;padding:8px 10px;vertical-align:top}
+table.ops code{font:11.5px ui-monospace,Menlo,monospace;background:#f1f5f9;border-radius:4px;padding:1px 5px;color:#0f172a;white-space:nowrap}
+tr.danger td{background:#fef2f2}
+tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
+.debug-log{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff}
+.debug-log summary{cursor:pointer;font-size:13px;color:var(--mut);font-weight:600}
+@media (max-width:640px){
+  .hs{grid-template-columns:1fr;gap:2px}
+}
+
+/* ---------- 灯箱（原图预览，按视口缩放） ---------- */
+#lbx{position:fixed;inset:0;z-index:100;background:rgba(8,12,20,.86);
+     display:flex;align-items:center;justify-content:center;padding:14px}
+#lbx.hidden{display:none !important}
+.lbx-stage{max-width:min(96vw,1800px);display:flex;flex-direction:column;gap:8px;width:100%}
+#lbxImg{max-width:100%;max-height:calc(96vh - 52px);width:auto;height:auto;margin:0 auto;
+        object-fit:contain;border-radius:6px;background:#000;box-shadow:0 14px 44px rgba(0,0,0,.55)}
+.lbx-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#e2e8f0;font-size:13px}
+.lbx-bar a{color:#93c5fd;text-decoration:none;padding:6px 10px;border:1px solid #475569;border-radius:8px}
+.lbx-bar a:hover{background:#1e293b}
+.lbx-bar button.ghost{border-color:#64748b;color:#e2e8f0;background:transparent}
+.lbx-bar button.ghost:hover{background:#1e293b}
+@media (max-width:640px){
+  #lbx{padding:8px}
+  #lbxImg{max-height:calc(96vh - 84px)}
+  .lbx-bar{flex-wrap:wrap;font-size:12px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Photo Gateway</h1>
+  <nav>
+    <a href="#" data-v="upload" class="active">上传</a>
+    <a href="#" data-v="photos">照片</a>
+    <a href="#" data-v="sync">同步</a>
+    <a href="#" data-v="system">系统</a>
+    <a href="#" data-v="log">说明</a>
+  </nav>
+</header>
+<main>
+  <div id="v-login" class="row hidden">
+    <b>登录：</b><input id="u" placeholder="用户名"><input id="p" type="password" placeholder="口令"><button id="bLogin">登录</button>
+  </div>
+
+  <div id="v-upload">
+    <section class="panel">
+      <div class="row panel-title"><b>上传照片</b></div>
+      <div class="actions-upload">
+        <label class="lbl" for="device">照片来源设备</label>
+        <select id="device"></select>
+      </div>
+      <label class="picker" id="picker" for="files">
+        <input type="file" multiple id="files" class="sr-file"
+               accept="image/*,.heic,.heif,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2">
+        <span class="pk-ico" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M6 18l4.2-4.6 3.1 3.1 2.3-2.2L20 18"/>
+          </svg>
+        </span>
+        <span class="pk-txt">
+          <span class="pk-main">选择照片文件</span>
+          <span class="pk-sub" id="pickSub">可多次点击追加选择；支持 JPG / PNG / HEIC / HEIF / RAW（DNG/CR2/CR3/NEF/ARW/RAF/ORF/RW2）</span>
+        </span>
+        <span class="pk-badge hidden" id="pickBadge">0</span>
+      </label>
+      <div id="pickListWrap" class="hidden"><ul id="pickList"></ul></div>
+      <div class="pickmeta hidden" id="pickMeta">
+        <span class="dim" id="pickInfo"></span>
+        <span id="pickNote" class="dup"></span>
+        <span class="pm-acts">
+          <button type="button" class="ghost" id="bClearFiles">清空全部</button>
+          <button type="button" id="bPre" disabled>检测并上传</button>
+        </span>
+      </div>
+      <div class="dim" id="phase">—</div>
+    </section>
+
+    <section class="panel hidden" id="Pdup">
+      <div class="row panel-title"><b>疑似重复照片</b><span class="dim">这些文件可能已上传过，请逐项或统一决定</span></div>
+      <div class="row"><button id="bSkipAll" class="ghost">全部跳过</button><button id="bReAll">全部重新上传</button></div>
+      <div class="tblwrap"><table><thead><tr><th>文件名</th><th>大小</th><th>决定</th></tr></thead><tbody id="dupRows"></tbody></table></div>
+    </section>
+
+    <section class="panel hidden" id="Ptx">
+      <div class="row panel-title"><b id="txTitle">处理中</b><span class="dim" id="txStage"></span></div>
+      <progress id="pg" max="100" value="0"></progress>
+      <div class="tx-line" id="txCur">准备…</div>
+      <div class="dim" id="stT"></div>
+    </section>
+
+    <section class="panel hidden" id="Pres">
+      <div class="res-hero" id="resHero">
+        <span class="res-mark" id="resMark">✓</span>
+        <div class="res-txt">
+          <div class="res-title" id="resH">处理完成</div>
+          <div class="dim" id="resSub"></div>
+        </div>
+      </div>
+      <div class="res-stats" id="resStats"></div>
+      <div class="row res-acts">
+        <button id="bMore">继续上传下一批</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="v-photos" class="hidden panel">
+    <div class="row panel-title"><b>照片资产</b><button id="bPh" class="ghost">刷新</button></div>
+    <div class="datebar">
+      <div class="db-field">
+        <span class="db-label" id="rangeLabel">拍摄日期</span>
+        <input type="date" id="df" value="" aria-label="开始日期">
+        <span class="db-sep">→</span>
+        <input type="date" id="dt" value="" aria-label="结束日期（含）">
+        <button id="bFilter">检索</button>
+      </div>
+      <div class="db-extra">
+        <div class="seg" role="group" aria-label="检索维度">
+          <button type="button" class="chip active" data-field="taken">按拍摄时间</button>
+          <button type="button" class="chip" data-field="uploaded">按上传时间</button>
+        </div>
+        <div class="seg" role="group" aria-label="排序方向">
+          <button type="button" class="chip active" data-order="desc">最新在前</button>
+          <button type="button" class="chip" data-order="asc">最早在前</button>
+        </div>
+        <div class="db-quick" role="group" aria-label="快捷时间范围">
+          <button type="button" class="chip active" data-r="all">全部</button>
+          <button type="button" class="chip" data-r="today">今天</button>
+          <button type="button" class="chip" data-r="7d">近 7 天</button>
+          <button type="button" class="chip" data-r="30d">近 30 天</button>
+        </div>
+      </div>
+    </div>
+    <div id="phGrid"></div>
+    <div class="row" id="pgBar"></div>
+  </div>
+
+  <div id="v-system" class="hidden panel">
+    <div class="row panel-title"><b>系统状态</b><button id="bSys" class="ghost">刷新</button></div>
+    <div id="sysCards"></div>
+  </div>
+
+  <div id="v-sync" class="hidden panel">
+    <div class="row panel-title"><b>照片同步状态</b><button id="bSync" class="ghost">刷新</button></div>
+    <div id="syncSum" class="hidden"></div>
+    <div id="syncGates"></div>
+    <div id="syncBody" class="mono hidden"></div>
+    <div id="syncMsg" style="display:none;margin:6px 0;padding:4px 8px;background:#fff8e1;border:1px solid #e0c060;"></div>
+    <div id="syncTable"></div>
+    <div id="syncBatches"></div>
+  </div>
+
+  <div id="v-log" class="hidden panel">
+    <div class="row panel-title"><b>说明</b></div>
+
+    <div class="sub-head"><b>它是怎么工作的</b><span class="dim">上传 → 去重 → 归档 → 同步 → 本地清理</span></div>
+    <div class="help-steps">
+      <div class="hs"><b>1. 上传照片</b><span>从手机 / 电脑浏览器或 App 把照片传到这台设备；系统会先“检测是否上传过”，再接收文件并写入临时区。</span></div>
+      <div class="hs"><b>2. 自动归档（入库）</b><span>后台把“已上传完成”的照片读取拍摄时间（没有拍摄信息的按文件时间），归档到 <code>Photos/年份/年月</code> 目录；整个过程不改动照片原文件，只是整理存放。</span></div>
+      <div class="hs"><b>3. 重复识别</b><span>同一张照片再次上传会被识别出来（按文件内容指纹），提示您“跳过”或“重传”；一张照片在库中只保留一份记录。</span></div>
+      <div class="hs"><b>4. 网页预览与缓存</b><span>照片页展示的是自动生成的小尺寸预览图，浏览时临时存放在缓存目录，超过保留时间（默认 90 天）会自动清理，需要时会重新生成。</span></div>
+      <div class="hs"><b>5. 同步到 NAS（正式库）</b><span>等没有新的上传在等待处理后，系统把已归档照片单向复制到 NAS，并保留拍摄时间；NAS 上的照片库可由 Immich 等相册软件读取（本设备只做中转与短期保存）。同步按顺序检查几个条件，都满足才执行（见“照片同步状态”页）。</span></div>
+      <div class="hs"><b>6. 本地历史清理</b><span>已经成功同步到 NAS 并超过本地保留期（默认 90 天）的历史月份，可以删除本机副本释放空间。“照片同步状态”页只提示哪些月份可清理，不会自动删除。</span></div>
+    </div>
+
+    <div class="sub-head"><b>维护命令</b><span class="dim">在设备上用终端执行；涉及删除的操作已用红色标出，请先阅读“注意”</span></div>
+    <div class="tblwrap"><table class="ops">
+      <thead><tr><th style="width:34%">命令</th><th style="width:22%">作用</th><th style="width:24%">适合什么时候用</th><th style="width:20%">注意</th></tr></thead>
+      <tbody>
+        <tr><td><code>python -m photo_gateway check --config &lt;配置&gt;</code></td><td>检查配置文件是否正确</td><td>每次修改配置后、重启前</td><td>错误时会给出原因</td></tr>
+        <tr><td><code>python -m photo_gateway hash-password</code></td><td>生成登录密码的加密串</td><td>开启登录保护前</td><td>结果写进配置的密码字段</td></tr>
+        <tr><td><code>python -m photo_gateway serve --config &lt;配置&gt;</code></td><td>启动网页与后台处理服务</td><td>日常运行</td><td>修改配置后需重启生效</td></tr>
+        <tr><td><code>python -m photo_gateway maintenance --config &lt;配置&gt;</code></td><td>手动清理过期临时文件与预览缓存</td><td>磁盘紧张时，或不想等每日自动清理</td><td>只删过期缓存，安全</td></tr>
+        <tr><td><code>python -m photo_gateway maintenance --config &lt;配置&gt; --scan-missing</code></td><td>核对：标记本地文件已丢失的照片</td><td>外部误删文件后，让照片页不再显示缺失项</td><td>只做标记，不删任何文件</td></tr>
+        <tr><td><code>python -m photo_gateway backfill-exif --config &lt;配置&gt;</code></td><td>为旧照片补读拍摄信息</td><td>老库升级后想补全归档信息</td><td>可重复执行</td></tr>
+        <tr><td><code>python -m photo_gateway align-mtime --config &lt;配置&gt;</code></td><td>把旧文件的时间对齐到拍摄时间</td><td>时间线错乱时修复</td><td>可重复执行</td></tr>
+        <tr><td><code>python -m photo_gateway cleanup --config &lt;配置&gt;</code></td><td>预览可本地清理的月份（不删除）</td><td>想看看哪些历史月份已可清理</td><td>安全预览</td></tr>
+        <tr class="danger"><td><code class="bad">python -m photo_gateway cleanup --config &lt;配置&gt; --apply --yes</code></td><td class="bad">真正删除本机已同步的历史月份</td><td class="bad">确认 NAS 上已有备份后再执行</td><td class="bad">会永久删除本机该月照片副本，需两个参数同时给出才执行；删除会记录日志</td></tr>
+      </tbody>
+    </table></div>
+    <div class="dim" style="margin-top:6px">命令统一需要 Python 3.12 环境与合法配置；具体每个参数的说明见仓库 README「运维命令行」章节。上面约简写法中 &lt;配置&gt; 是配置文件的路径。</div>
+
+    <details class="debug-log">
+      <summary>技术日志（排查问题给技术人员看）</summary>
+      <div id="log"></div>
+    </details>
+  </div>
+</main>
+
+<!-- 原图灯箱预览 -->
+<div id="lbx" class="hidden" role="dialog" aria-modal="true" aria-label="图片预览">
+  <div class="lbx-stage">
+    <div class="lbx-bar">
+      <span id="lbxName" class="dim"></span>
+      <span style="display:inline-flex;gap:8px;align-items:center">
+        <a id="lbxOpen" href="#" target="_blank" rel="noopener">新窗口打开原图</a>
+        <button id="lbxClose" class="ghost">关闭</button>
+      </span>
+    </div>
+    <img id="lbxImg" alt="原图预览">
+  </div>
+</div>
+
+<script>
+"use strict";
+const API="/api/v1", $=i=>document.getElementById(i);
+let token=null, sessionId=null, device=null, files=[]; // 每个 {file,item_id,pre,conf}
+function log(m){ const d=$("log"); d.textContent+="["+new Date().toLocaleTimeString()+"] "+m+"\n"; d.scrollTop=d.scrollHeight; }
+const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function authH(json){const h={};if(token)h.Authorization="Bearer "+token;if(json!==undefined)h["Content-Type"]="application/json";return h;}
+async function api(m,p,body,form){
+  const r=await fetch(API+p,{method:m,headers:authH(form===undefined?body:undefined),body:form||(body?JSON.stringify(body):undefined)});
+  let j; try{j=await r.json();}catch(e){j={success:false,error:{code:r.status,message:r.statusText}}}
+  if(r.status===401&&j.error&&j.error.code==="AUTH_REQUIRED"){$("v-login").classList.remove("hidden");throw new Error("need login");}
+  if(!j.success) throw Error((j.error&&j.error.code||"ERR")+": "+(j.error&&j.error.message));
+  return j;
+}
+
+$("bMore").onclick=resetUpload;
+
+$("bLogin").onclick=async()=>{ try{const j=await api("POST","/auth/login",{username:$("u").value,password:$("p").value});token=j.data.token;$("v-login").classList.add("hidden");log("登录成功");await init();}catch(e){log("登录失败 "+e.message);} };
+
+function showView(v){ ["upload","photos","system","sync","log"].forEach(k=>{const el=document.getElementById("v-"+k); if(el) el.classList.toggle("hidden", k!==v);}); document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.v===v)); }
+document.querySelectorAll("nav a").forEach(a=>a.onclick=e=>{e.preventDefault(); showView(a.dataset.v);
+ if(a.dataset.v==="photos")loadPhotos(); if(a.dataset.v==="system")loadSys(); if(a.dataset.v==="sync")loadSync(); });
+$("bSync").onclick=loadSync;
+async function loadSync(){ try{
+  const j=await api("GET","/sync/overview"); const d=j.data;
+  const sum=$("syncSum");
+  $("syncTable").innerHTML=""; $("syncBatches").innerHTML=""; $("syncGates").innerHTML="";
+  if(!d.enabled){
+    sum.classList.add("hidden");
+    $("syncBody").classList.remove("hidden");
+    $("syncBody").textContent="照片同步未启用：请让管理员在配置中开启“照片同步”（NAS 地址等）并重启服务。";
+    return; }
+  $("syncBody").classList.add("hidden");
+  sum.classList.remove("hidden");
+  const lb=d.batches&&d.batches[0]||null;
+  const lastT=lb?(String(lb.completed_at||lb.started_at||"").slice(0,16)||"—"):"—";
+  sum.innerHTML =
+    '<div class="sync-summary">'+
+      '<div class="sm-item"><b>'+d.threshold+'</b><span>连续失败几次后暂停</span></div>'+
+      '<div class="sm-item"><b>'+d.retention_days+' 天</b><span>本地保留时间</span></div>'+
+      '<div class="sm-item"><b>'+(d.batches.length)+'</b><span>最近同步轮次</span></div>'+
+      '<div class="sm-item" title="最近一次同步任务的完成时间"><b>'+esc(lastT)+'</b><span>最近完成同步</span></div>'+
+    '</div>'+
+    '<div class="sync-help">'+
+      '<div>· 连续失败几次后暂停：某个月的同步连续失败达到该次数，系统会暂停这个月并标记为“异常”，等待您处理（点该行的“重试”可恢复）。</div>'+
+      '<div>· 本地保留时间：照片成功同步到 NAS 并保留满该天数后，这个月才会进入“可本地清理”的候选（页面只显示候选，不会自动删除；真正删除需运维人员执行命令行工具）。</div>'+
+      '<div>· 状态列：正常＝最近同步成功；异常＝失败被暂停（可看该行原因）；待重试＝您已点了“重试”，等待下一轮；尚未同步＝这个月还没开始同步（下方条件满足后，第一轮会自动开始并同步）。</div>'+
+      '<div>· 如果很久都没有新的“最近完成同步”，请对照下方前置条件排查（NAS 是否在线、上传归档是否繁忙、目录是否就绪），并确认设备时间一致。</div>'+
+    '</div>';
+  loadGates();
+  renderMonthsTbl(d.months||[]);
+  renderBatchesTbl(d.batches||[]);
+}catch(e){ log("同步概览失败 "+e.message); } }
+
+/* ---------- 同步页：通用 可排序+分页 表格 ---------- */
+function stZh(s){ return {NORMAL:"正常",ABNORMAL:"异常·已暂停",RETRY_REQUESTED:"待重试",
+    SUCCESS:"成功",FAILED:"失败",COMPLETED:"已完成",RUNNING:"同步中",PENDING:"等待中"}[s]||s; }
+function sortRows(rows,key,dir){
+  const arr=rows.slice();
+  arr.sort((a,b)=>{
+    let x=a==null?null:a[key], y=b==null?null:b[key];
+    if(x==null&&y==null) return 0;
+    if(x==null) return 1; if(y==null) return -1;
+    const xn=typeof x==="number", yn=typeof y==="number";
+    let c = (xn&&yn)? x-y : String(x).localeCompare(String(y));
+    return dir==="asc"?c:-c;
+  });
+  return arr;
+}
+function pagedTable(el,rows,opts,st,redraw){
+  const sorted=sortRows(rows, st.k||opts.defK, st.d||opts.defD);
+  const pages=Math.max(1,Math.ceil(sorted.length/opts.perPage));
+  if(st.p>=pages) st.p=pages-1; if(st.p<0) st.p=0;
+  const slice=sorted.slice(st.p*opts.perPage,(st.p+1)*opts.perPage);
+  const arrow=k=>st.k===k?(st.d==="asc"?" ▲":" ▼"):"";
+  let h='<div class="tblwrap'+(opts.wrapClass?' '+opts.wrapClass:'')+'"><table><thead><tr>';
+  h+=opts.cols.map(c=>c.noSort
+      ?'<th class="no-sort"></th>'
+      :'<th data-k="'+c.k+'" class="sortable">'+c.label+arrow(c.k)+'</th>').join("");
+  h+='</tr></thead><tbody>';
+  h+=slice.map(r=>'<tr>'+opts.cols.map(c=>'<td>'+(c.cell?c.cell(r):fmtCell(r[c.k]))+'</td>').join("")+'</tr>').join("");
+  h+='</tbody></table></div>';
+  h+='<div class="tp"><span class="dim">共 '+sorted.length+' 行 · 第 '+(st.p+1)+'/'+pages+' 页 · 点表头可排序</span>'+
+     '<span><button type="button" class="ghost" data-pg="prev"'+(st.p<=0?' disabled':'')+'>上一页</button> '+
+     '<button type="button" class="ghost" data-pg="next"'+(st.p+1>=pages?' disabled':'')+'>下一页</button></span></div>';
+  el.innerHTML=h;
+  el.querySelectorAll("th.sortable").forEach(th=>{ th.onclick=()=>{
+    const k=th.dataset.k;
+    if(st.k===k){ st.d=st.d==="asc"?"desc":"asc"; } else { st.k=k; st.d=opts.defD||"desc"; }
+    st.p=0; redraw();
+  }; });
+  const pv=el.querySelector('[data-pg="prev"]'); if(pv) pv.onclick=()=>{ st.p--; redraw(); };
+  const nx=el.querySelector('[data-pg="next"]'); if(nx) nx.onclick=()=>{ st.p++; redraw(); };
+}
+function fmtCell(v){ return v==null||v===""?"-":String(v); }
+function subHead(title,note){
+  const d=document.createElement("div"); d.className="sub-head";
+  d.innerHTML='<b>'+esc(title)+'</b><span class="dim">'+esc(note||"")+'</span>';
+  return d;
+}
+function errCell(m){
+  if(m.current_state!=="ABNORMAL") return "";
+  const reason=m.abnormal_reason||"unknown";
+  const raw=m.latest_error||"";
+  const first=(raw.split("\n")[0]||"").trim()||"（无失败记录）";
+  const brief=(reason+"："+first);
+  return raw
+    ? '<span title="'+escq(raw.slice(0,2000))+'">'+esc(brief.slice(0,120))+(brief.length>120?"…":"")+'</span>'
+    : esc(reason);
+}
+function retryCell(m){
+  if(m.current_state!=="ABNORMAL") return "";
+  return '<button type="button" class="ghost" data-month="'+escq(m.month)+'" onclick="tryRetry(\''+escq(m.month)+'\')">重试</button>';
+}
+function cleanupZh(m){
+  if(m.cleanup_eligible) return '<span class="ok">可清理</span>';
+  const r=m.cleanup_reason||"否";
+  const map={"state!=NORMAL":"需先同步成功","no task":"从未同步过","latest=FAILED":"最近一次未成功",
+             "latest=RUNNING":"正在同步中","latest=PENDING":"等待同步中","within retention":"仍在保留期内"};
+  return r in map? esc(map[r]) : esc(r);
+}
+const mT={k:"month",d:"desc",p:0};
+const MCOLS=[
+  {k:"month",label:"月份",cell:m=>esc(m.month||"-")},
+  {k:"current_state",label:"状态",cell:m=>m.current_state
+     ?'<span class="st-badge '+esc(m.current_state)+'">'+esc(stZh(m.current_state))+'</span>'
+     :'<span class="dim" title="这个月从未开始同步">尚未同步</span>'},
+  {k:"consecutive_failed",label:"连续失败",cell:m=>String(m.consecutive_failed??0)},
+  {k:"abnormal_at",label:"异常时间",cell:m=>esc(m.abnormal_at||"")},
+  {k:"latest_task_status",label:"最近一次",cell:m=>esc(stZh(m.latest_task_status)||"-")},
+  {k:"latest_success_at",label:"最近成功",cell:m=>esc(m.latest_success_at||"")},
+  {k:"cleanup_eligible",label:"本地清理",cell:cleanupZh},
+  {k:"latest_error",label:"原因 / 错误信息",cell:errCell},
+  {noSort:true,label:"",cell:retryCell},
+];
+function renderMonthsTbl(months){
+  const el=$("syncTable"); if(!el) return;
+  el.innerHTML="";
+  if(!months.length){ el.appendChild(subHead("各月同步明细","0 个月"));
+    const e=document.createElement("div"); e.className="empty-state"; e.textContent="（还没有需要同步的月份）"; el.appendChild(e); return; }
+  el.appendChild(subHead("各月同步明细",months.length+" 个月 · 窄屏可左右滑动"));
+  const body=document.createElement("div"); el.appendChild(body);
+  pagedTable(body,months,{cols:MCOLS,perPage:12,defK:"month",defD:"desc",wrapClass:"mwrap"},mT,()=>renderMonthsTbl(months));
+}
+const bT={k:"id",d:"desc",p:0};
+const BCOLS=[
+  {k:"id",label:"#",cell:b=>String(b.id)},
+  {k:"completed_at",label:"完成时间",cell:b=>esc(String(b.completed_at||b.started_at||"").slice(0,16)||"-")},
+  {k:"status",label:"结果",cell:b=>esc(stZh(b.status)||"-")},
+  {k:"task_count",label:"任务数",cell:b=>String(b.task_count??0)},
+  {k:"success_count",label:"成功",cell:b=>String(b.success_count??0)},
+  {k:"failed_count",label:"失败",cell:b=>String(b.failed_count??0)},
+];
+function renderBatchesTbl(batches){
+  const el=$("syncBatches"); if(!el) return;
+  el.innerHTML="";
+  if(!batches.length){ el.appendChild(subHead("最近同步轮次","0 次"));
+    const e=document.createElement("div"); e.className="empty-state"; e.textContent="（还没有同步记录）"; el.appendChild(e); return; }
+  el.appendChild(subHead("最近同步轮次",batches.length+" 次 · 每次一轮完整同步"));
+  const body=document.createElement("div"); el.appendChild(body);
+  pagedTable(body,batches,{cols:BCOLS,perPage:8,defK:"id",defD:"desc"},bT,()=>renderBatchesTbl(batches));
+}
+
+/* ---------- 同步前置条件 ---------- */
+async function loadGates(){
+  const g=$("syncGates"); if(!g) return;
+  g.innerHTML='<div class="dim">正在检查同步前置条件…</div>';
+  try{
+    const x=(await api("GET","/sync/gates")).data;
+    if(!x.enabled){ g.innerHTML=""; return; }
+    const row=(name,ok,txt)=>'<div class="gc-row"><span class="gc-name">'+name+'</span>'+
+      '<span class="st-badge '+(ok?"NORMAL":"ABNORMAL")+'">'+(ok?"通过":"未通过")+'</span>'+
+      '<span class="gc-txt">'+txt+'</span></div>';
+    g.innerHTML='<div class="sub-head"><b>开始同步前需要满足的条件</b><span class="dim">系统按顺序检查，全部通过才会开始同步</span></div>'+
+      '<div class="gc">'+
+      row("NAS 在线",x.nas_alive,"能连上 NAS（关机 / 网络不通 / 密钥失效都会不通过）")+
+      row("同步目录就绪",x.nas_ready,"NAS 上保存照片的目录存在且可写入")+
+      row("上传处理空闲",x.v1_idle,"没有正在处理或等待归档的上传（上传进行中会等下一轮再同步）")+
+      '<div class="gc-foot">本次检查时间：<b>'+esc(x.checked_at)+'</b> · 待同步的月份：'+x.months_total+' 个 · '+
+      (x.all_ok?'<span class="ok">全部通过，可以正常同步</span>':'<span class="bad">还有条件未满足，系统会等待其通过后再同步</span>')+
+      '</div></div>';
+  }catch(e){ g.innerHTML='<div class="dim bad">条件检查失败：'+esc(e.message)+'</div>'; }
+}
+const escq=s=>esc(s).replace(/"/g,"&quot;");
+let _msgTimer=null;
+function msgSync(t){ const el=$("syncMsg"); el.textContent=t; el.style.display="block";
+  clearTimeout(_msgTimer); _msgTimer=setTimeout(()=>{ el.style.display="none"; },6000); }
+window.tryRetry=async m=>{
+  const b=document.querySelector(`button[data-month="${CSS.escape(m)}"]`); if(b) b.disabled=true;
+  msgSync("月份 "+m+" 重试请求提交中…");
+  try{ const j=await api("POST","/sync/months/"+m+"/retry");
+    msgSync("月份 "+m+" 已请求重试，将在下一轮同步中自动进行");
+    await loadSync();
+  }catch(e){ msgSync("Retry 失败: "+e.message); log("Retry 失败 "+e.message); if(b) b.disabled=false; }
+};
+
+async function init(){
+  try{const j=await api("GET","/devices");const sel=$("device");sel.innerHTML="";for(const d of j.data.devices.filter(x=>x.enabled)){const o=new Option(d.name+" ("+d.id+")",d.id);sel.add(o);}device=sel.value;}catch(e){log("设备加载失败 "+e.message);return;}
+  try{const j=await api("GET","/system/status");log("系统：assets="+ (j.data.counts.assets)+" worker="+j.data.worker.status);}catch(e){}
+  log("就绪");
+}
+
+/* ---- 文件选择：多次追加 / 去重 / 清单 / 单张删除 / 清空 / 拖拽 ---- */
+let pickFiles=[];   // 本次待上传照片（可多次选择累积）
+function fmtSize(n){
+  if(n<1024) return n+" B";
+  if(n<1048576) return (n/1024).toFixed(1)+" KB";
+  return (n/1048576).toFixed(1)+" MB";
+}
+function fmtType(f){ return (f.name.split(".").pop()||"IMG").toUpperCase(); }
+function notePick(t){ const el=$("pickNote"); if(el) el.textContent=t||""; }
+function renderPick(){
+  const n=pickFiles.length;
+  const badge=$("pickBadge"), meta=$("pickMeta"), wrap=$("pickListWrap"), ul=$("pickList");
+  const bPre=$("bPre");
+  if(!n){
+    badge.classList.add("hidden"); meta.classList.add("hidden"); wrap.classList.add("hidden");
+    ul.innerHTML="";
+    $("pickSub").textContent="可多次点击追加选择；支持 JPG / PNG / HEIC / HEIF / RAW（DNG/CR2/CR3/NEF/ARW/RAF/ORF/RW2）";
+    $("bPre").textContent="检测并上传"; $("bPre").disabled=true;
+    notePick("");
+    return;
+  }
+  badge.textContent=n; badge.classList.remove("hidden");
+  $("pickSub").textContent="已选择 "+n+" 张 — 可继续点击追加";
+  $("pickInfo").textContent="共 "+n+" 张 · "+fmtSize(pickFiles.reduce((s,f)=>s+f.size,0));
+  $("bPre").textContent="检测并上传（"+n+"）"; $("bPre").disabled=false;
+  ul.innerHTML="";
+  pickFiles.forEach((f,i)=>{
+    const li=document.createElement("li");
+    const ico=document.createElement("span"); ico.className="pk-file-ico"; ico.textContent=fmtType(f);
+    const nm=document.createElement("span"); nm.className="pk-name"; nm.textContent=f.name; nm.title=f.name;
+    const sz=document.createElement("span"); sz.className="pk-size"; sz.textContent=fmtSize(f.size);
+    const del=document.createElement("button"); del.type="button"; del.className="pk-del";
+    del.title="移除该张"; del.textContent="✕";
+    del.onclick=()=>{ pickFiles.splice(i,1); renderPick(); };
+    li.append(ico,nm,sz,del); ul.appendChild(li);
+  });
+  meta.classList.remove("hidden"); wrap.classList.remove("hidden");
+}
+function addPick(filesList){
+  let added=0, dup=0;
+  for(const f of filesList||[]){
+    const hit=pickFiles.some(x=>x.name===f.name&&x.size===f.size&&x.lastModified===f.lastModified);
+    if(hit){ dup++; continue; }
+    pickFiles.push(f); added++;
+  }
+  if(added||dup){ renderPick(); notePick(dup?("已跳过重复 "+dup+" 张（与清单中文件相同）"):""); }
+}
+$("files").addEventListener("change",e=>{
+  addPick(e.target.files||[]);
+  $("files").value="";          // 清空以便再次选择相同文件也能触发
+});
+$("bClearFiles").onclick=()=>{ pickFiles=[]; renderPick(); };
+(function(){
+  const pk=$("picker");
+  ["dragover","dragleave","drop"].forEach(ev=>pk.addEventListener(ev,e=>{
+    e.preventDefault(); e.stopPropagation();
+    pk.classList.toggle("drag", ev==="dragover");
+    if(ev==="drop"&&e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length){
+      addPick(e.dataTransfer.files);
+    }
+  }));
+})();
+
+/* ---- 上传流程：选择 → 检测/查重 → 传输 → 后台归档 → 结果 ---- */
+function enterUpload(){
+  // 忙碌态：隐藏选择卡片与清单，切换到处理进度
+  $("picker").classList.add("hidden");
+  $("pickListWrap").classList.add("hidden");
+  $("pickMeta").classList.add("hidden");
+  $("Pdup").classList.add("hidden"); $("Pres").classList.add("hidden");
+  $("Ptx").classList.remove("hidden");
+}
+function resetUpload(){
+  files=[]; pickFiles=[];
+  $("Pdup").classList.add("hidden"); $("Ptx").classList.add("hidden"); $("Pres").classList.add("hidden");
+  $("phase").textContent="—";
+  $("picker").classList.remove("hidden");
+  renderPick();
+}
+$("bPre").onclick=async()=>{
+  if(!pickFiles.length){ alert("请先选择照片"); return; }
+  files=pickFiles.map(f=>({file:f,pre:null,conf:0,item_id:null}));
+  const dev=device||($("device").value); if(!dev){alert("请先选择照片来源设备");return;}
+  enterUpload();
+  const total=files.length;
+  $("txTitle").textContent="检测与查重";
+  $("pg").max=total; $("pg").value=0; $("txStage").textContent="0 / "+total;
+  $("txCur").textContent="正在创建上传会话…"; $("stT").textContent="";
+  try{
+    const c=await api("POST","/upload-sessions",{source_device:dev});
+    sessionId=c.data.session.id;
+    for(let i=0;i<files.length;i++){
+      const it=files[i];
+      $("txCur").textContent="正在检测 "+it.file.name+"（是否已上传过）";
+      const j=await api("POST","/upload-sessions/"+sessionId+"/items/precheck",
+        {items:[{client_item_id:Math.random().toString(36).slice(2),filename:it.file.name,file_size:it.file.size}]});
+      it.pre=j.data.items[0].precheck_status; it.item_id=j.data.items[0].item_id;
+      $("pg").value=i+1; $("txStage").textContent=(i+1)+" / "+total;
+    }
+    const dups=files.filter(i=>i.pre==="POSSIBLE_DUPLICATE");
+    if(dups.length){
+      $("Ptx").classList.add("hidden");
+      renderDup(dups);
+      $("Pdup").classList.remove("hidden");
+      $("phase").textContent="发现 "+dups.length+" 张疑似重复，请决定处理方式";
+    } else run();
+  }catch(e){ log("预检失败 "+e.message); $("phase").textContent="检测失败："+e.message; resetUpload(); }
+};
+function renderDup(dups){const tb=$("dupRows");tb.innerHTML="";for(const it of dups){
+  const tr=document.createElement("tr");
+  tr.innerHTML="<td>"+esc(it.file.name)+"</td><td>"+it.file.size+"</td><td><button class='ghost'>跳过</button> <button>重新上传</button></td>";
+  const [bS,bR]=[...tr.cells[2].children];
+  bS.onclick=async()=>{await conf(it,2);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
+  bR.onclick=async()=>{await conf(it,1);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
+  tb.appendChild(tr);}
+}
+$("bSkipAll").onclick=async()=>{for(const it of dupPending()){await conf(it,2);}run();};
+$("bReAll").onclick=async()=>{for(const it of dupPending()){await conf(it,1);}run();};
+function dupPending(){return files.filter(i=>i.pre==="POSSIBLE_DUPLICATE"&&!i.conf);}
+async function conf(it,val){ try{ await api("POST","/upload-items/"+it.item_id+"/confirmation",{confirmation:val}); it.conf=val; }catch(e){log("确认失败 "+e.message);} }
+function checkDone(){ return dupPending().length===0; }
+
+async function run(){
+  $("Pdup").classList.add("hidden");
+  $("Ptx").classList.remove("hidden");
+  const total=files.length; let n=0;
+  $("txTitle").textContent="上传照片";
+  $("pg").max=total; $("pg").value=0; $("txStage").textContent="0 / "+total; $("stT").textContent="";
+  for(const it of files){
+    const skip = it.pre==="POSSIBLE_DUPLICATE" && it.conf===2;   // 用户明确跳过
+    const needUpload = it.pre!=="POSSIBLE_DUPLICATE" || it.conf===1;
+    if(skip){
+      n++; $("pg").value=n; $("txStage").textContent=n+" / "+total;   // 跳过也算处理进度
+      $("txCur").textContent="已跳过 "+it.file.name;
+      continue;
+    }
+    if(!needUpload){ continue; }
+    $("txCur").textContent="正在上传 "+it.file.name+"（"+fmtSize(it.file.size)+"）";
+    const fd=new FormData(); fd.append("file", it.file, it.file.name);
+    fd.append("modified_ms", String(it.file.lastModified));   // 客户端原文件修改时间(毫秒), 无 EXIF 时作 file_mtime
+    try{ await api("POST","/upload-items/"+it.item_id+"/file",undefined,fd); }
+    catch(e){ log("上传项失败 "+it.file.name+": "+e.message); }
+    n++; $("pg").value=n; $("txStage").textContent=n+" / "+total;      // 失败也计入“已处理”，汇总看失败数
+  }
+  $("txTitle").textContent="等待后台归档";
+  $("txCur").textContent="文件已全部传输完成，正在等待 Worker 归档…";
+  await pollSession();
+}
+async function pollSession(){ const t=Date.now()+120000;
+  while(Date.now()<t){ await new Promise(r=>setTimeout(r,2500));
+    try{ const j=await api("GET","/upload-sessions/"+sessionId); const s=j.data.session;
+      if(["COMPLETED","PARTIAL","FAILED"].includes(s.status)){ summary(s); return; }
+      $("txCur").textContent="归档中：状态 "+s.status
+        +"（已传 "+s.uploaded_files+" / 重复 "+s.duplicate_files+" / 失败 "+s.failed_files+"）";
+      $("txStage").textContent=s.uploaded_files+" 已归档";
+    }catch(_){} }
+  summary(null);
+}
+function summary(s){
+  $("Ptx").classList.add("hidden");
+  const P=$("Pres"); P.classList.remove("hidden");
+  const hero=$("resHero"), mark=$("resMark"), h=$("resH"), sub=$("resSub");
+  if(!s){
+    hero.className="res-hero dup"; mark.textContent="…"; h.textContent="归档仍在后台进行";
+    sub.textContent="上传已完成、归档仍在后台处理（本次批次号 "+sessionId+"）。稍后可到「照片」页查看。";
+    $("resStats").innerHTML=""; return;
+  }
+  if(s.status==="COMPLETED"){
+    hero.className="res-hero ok"; mark.textContent="✓"; h.textContent="本次任务已完成";
+    sub.textContent="全部照片已上传并归档完成，可到「照片」页查看。";
+  } else if(s.status==="PARTIAL"){
+    hero.className="res-hero dup"; mark.textContent="!"; h.textContent="本次任务部分完成";
+    sub.textContent="有 "+s.failed_files+" 项未成功（原因见「日志」页）。请记住文件名，在下一批中重新选择这 "+s.failed_files+" 张上传。";
+  } else {
+    hero.className="res-hero bad"; mark.textContent="✕"; h.textContent="任务失败";
+    sub.textContent="请到「日志」页查看失败原因后重试。";
+  }
+  const items=[["总文件",s.total_files,""],["成功/已归档",s.uploaded_files,"ok"],
+               ["重复",s.duplicate_files,"dup"],["跳过",s.skipped_files,""],
+               ["失败",s.failed_files,"bad"]];
+  $("resStats").innerHTML=items.map(x=>
+    '<div class="stat'+(x[2]?" st-"+x[2]:"")+'"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>').join("");
+  $("bMore").textContent="继续上传下一批";
+}
+
+let phState={page:0,size:0,total:0,field:"taken",order:"desc"};
+const PG_SIZES=[12,24,48,96];
+/* 按浏览器宽度估算默认每页：列数(≈150px/格) × 6 行，凑到最接近的标准档，使整页为整行 */
+function estPageSize(){
+  const w=document.documentElement.clientWidth||window.innerWidth||1000;
+  const cols=Math.max(2,Math.floor(Math.min(w,1300)/156));
+  const n=Math.min(96,Math.max(12,cols*6));
+  let near=PG_SIZES[0];
+  for(const s of PG_SIZES){ near=s; if(s>=n) break; }
+  return near;
+}
+function phNextDate(d){ if(!d) return ""; const x=new Date(d+"T00:00:00Z"); x.setUTCDate(x.getUTCDate()+1); return x.toISOString().slice(0,10); }
+function phPages(){ return phState.size? Math.ceil(phState.total/phState.size):1; }
+function phClamp(p){ return Math.min(p, Math.max(0, phPages()-1)); }
+function isoDay(offset){
+  const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()+offset);
+  const p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+}
+function setChips(activeR){ document.querySelectorAll(".chip[data-r]").forEach(ch=>ch.classList.toggle("active", ch.dataset.r===activeR)); }
+function setRangeLabel(){ const el=$("rangeLabel"); if(el) el.textContent=(phState.field==="uploaded")?"上传日期":"拍摄日期"; }
+function setField(f){ phState.field=f; setRangeLabel();
+  document.querySelectorAll(".seg [data-field]").forEach(b=>b.classList.toggle("active", b.dataset.field===f)); }
+function setOrder(o){ phState.order=o;
+  document.querySelectorAll(".seg [data-order]").forEach(b=>b.classList.toggle("active", b.dataset.order===o)); }
+/* 维度（拍摄时间/上传时间）与方向（最新/最早在前），默认 desc */
+document.querySelectorAll(".seg [data-field]").forEach(b=>{ b.onclick=()=>{ setField(b.dataset.field); loadPhotos(0); }; });
+document.querySelectorAll(".seg [data-order]").forEach(b=>{ b.onclick=()=>{ setOrder(b.dataset.order); loadPhotos(0); }; });
+/* 快捷范围：联动 开始(df) 与 结束(dt，含当天，后端 date_to 不含自动 +1） */
+document.querySelectorAll(".chip[data-r]").forEach(ch=>{
+  ch.onclick=()=>{
+    const r=ch.dataset.r;
+    if(r==="all"){ $("df").value=""; $("dt").value=""; }
+    else if(r==="today"){ $("df").value=isoDay(0); $("dt").value=isoDay(0); }
+    else if(r==="7d"){ $("df").value=isoDay(-6); $("dt").value=isoDay(0); }
+    else if(r==="30d"){ $("df").value=isoDay(-29); $("dt").value=isoDay(0); }
+    setChips(r);
+    loadPhotos(0);
+  };
+});
+["df","dt"].forEach(id=>$(id).addEventListener("change",()=>setChips(null)));
+async function loadPhotos(page){ try{
+  if(page!==undefined) phState.page=phClamp(page);
+  const p=phState; p.err=null;
+  if(!p.size){ p.size=estPageSize(); }       // 首次进入按窗口宽度估算默认每页
+  const q=new URLSearchParams();
+  q.set("limit", String(p.size));
+  q.set("field", p.field);                    // taken=拍摄时间 / uploaded=上传时间
+  q.set("order", p.order);                    // asc/desc
+  const from=$("df").value||""; const dt=$("dt").value||"";
+  const toEx=phNextDate(dt);                  // dt 为用户所选“至（含）”→ 后端 date_to 不含
+  if(from) q.set("date_from", from);
+  if(toEx) q.set("date_to", toEx);
+  if(p.page>0) q.set("offset", String(p.page*p.size));
+  const j=await api("GET","/photos?"+q.toString());
+  p.total=j.data.total; p.size=j.data.limit;
+  p.page=phClamp(p.page);
+  const g=$("phGrid"); g.innerHTML="";
+  if(!j.data.photos.length){
+    g.innerHTML='<div class="empty-state">（该范围没有照片）</div>';   // 全宽居中，避免缩略图格窄列换行
+  }
+  for(const ph of j.data.photos){
+    const a=document.createElement("a");
+    a.href=ph.file_url||(API+"/photos/"+ph.id+"/file");
+    a.title=(ph.date_taken||"")+" "+ph.archive_path+"（点击预览原图）";
+    // 点击 → 灯箱预览原图（不再默认下载）
+    a.onclick=ev=>{ ev.preventDefault(); openLbx(ph); };
+    const img=document.createElement("img"); img.loading="lazy";
+    img.alt=ph.current_filename||("photo-"+ph.id); img.src=ph.thumbnail_url||(API+"/photos/"+ph.id+"/thumbnail");
+    // 兜底：若仍加载失败(本地缺失/服务端未及时过滤)则隐藏该项，避免破图
+    img.onerror=()=>{ const anc=img.closest("a"); if(anc) anc.style.display="none"; };
+    const cap=document.createElement("span"); cap.className="dim"; cap.textContent=(ph.date_taken?ph.date_taken.slice(0,10):"");
+    a.appendChild(img); a.appendChild(cap); g.appendChild(a);
+  }
+  log("照片列表 page="+(p.page+1)+"/"+Math.max(1,phPages())+" total="+p.total);
+}catch(e){ phState.err=e; log("照片加载失败 "+e.message); }
+finally{ renderPg(); } }
+function renderPg(){
+  const bar=$("pgBar"); if(!bar) return;
+  if(phState.err){ bar.innerHTML='<span class="bad">照片加载失败：'+esc(phState.err.message)+'</span> <button class="ghost" id="pgRetry">重试</button>';
+    const rb=bar.querySelector("#pgRetry"); if(rb) rb.onclick=()=>loadPhotos(); return; }
+  const p=phState, cur=p.page+1, tot=Math.max(1,phPages());
+  const selOpts=PG_SIZES.map(s=>'<option value="'+s+'"'+(s===p.size?' selected':'')+'>'+s+'</option>').join("");
+  bar.innerHTML =
+    '<label class="dim pg-size">每页 <select id="pgSel">'+selOpts+'</select> 张</label>'+
+    '<button class="ghost" id="pgPrev"'+(p.page<=0?' disabled':'')+'>上一页</button>'+
+    '<span class="dim" id="pgInfo">第 '+cur+' / '+tot+' 页 · 共 '+p.total+' 张</span>'+
+    '<button class="ghost" id="pgNext"'+(p.page+1>=tot?' disabled':'')+'>下一页</button>';
+  bar.querySelector("#pgSel").onchange=e=>{ p.size=parseInt(e.target.value,10); p.page=0; loadPhotos(0); };
+  bar.querySelector("#pgPrev").onclick=()=>loadPhotos(p.page-1);
+  bar.querySelector("#pgNext").onclick=()=>loadPhotos(p.page+1);
+}
+$("bPh").onclick=()=>loadPhotos();
+$("bFilter").onclick=()=>loadPhotos(0);
+
+/* ---- 原图灯箱（按视口缩放预览；file 端点 inline=1 供新窗口内联） ---- */
+function openLbx(ph){
+  $("lbxName").textContent=(ph.date_taken?ph.date_taken.slice(0,10)+" ":"")+(ph.current_filename||("photo-"+ph.id));
+  const base=ph.file_url||(API+"/photos/"+ph.id+"/file");
+  $("lbxOpen").href=base+(base.indexOf("?")>=0?"&":"?")+"inline=1";
+  $("lbxImg").src=base;   // <img> 渲染不受 attachment 头影响
+  $("lbx").classList.remove("hidden");
+  document.body.style.overflow="hidden";
+}
+function closeLbx(){ $("lbx").classList.add("hidden"); document.body.style.overflow=""; }
+$("lbxClose").onclick=closeLbx;
+$("lbx").addEventListener("click",e=>{ if(e.target===$("lbx")||e.target===$("lbxImg")) closeLbx(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&!$("lbx").classList.contains("hidden")) closeLbx(); });
+
+async function loadSys(){ try{ const j=await api("GET","/system/status"); const d=j.data;
+  const c=d.counts||{}; const s=d.storage;
+  const card=(body,wide)=>'<div class="sc'+(wide?" wide":"")+'">'+body+'</div>';
+  const row=(k,v)=>{ const n=v==null?"-":v; return '<div class="sc-row"><span>'+k+'</span><b>'+n+'</b></div>'; };
+  let h="";
+  // 存储卡
+  if(s){
+    const lvlName={normal:"正常",warning:"偏满·请注意",critical:"危险",stop:"已满·停止接收"}[s.level]||s.level;
+    const lvlCls={normal:"s-normal",warning:"s-warning",critical:"s-critical",stop:"s-stop"}[s.level]||"s-normal";
+    const mCls={normal:"",warning:"warn",critical:"crit",stop:"stop"}[s.level]||"";
+    h+=card('<h3>存储空间 <span class="state '+lvlCls+'">'+lvlName+'</span></h3>'+
+      '<div class="sc-num">'+s.used_percent+'%</div>'+
+      '<div class="meter '+mCls+'"><i style="width:'+Math.min(100,s.used_percent)+'%"></i></div>'+
+      '<div class="sc-help">已用空间分三档：'+s.thresholds.warning_percent+'%（提醒）、'+s.thresholds.critical_percent+'%（危险）、'+s.thresholds.stop_percent+'%（停止接收新照片）。'+
+      '达到停止档后，新的上传会被拒绝（正在处理的不受影响）。位置：'+(s.path||"-")+'</div>', true);
+  } else {
+    h+=card('<h3>存储空间 <span class="state s-warning">未探测</span></h3><div class="sc-help">无法检查存放照片的磁盘（可能目录未就绪）。</div>', true);
+  }
+  // Worker 卡
+  h+=card('<h3>后台处理 <span class="state s-normal">运行中</span></h3>'+
+    row("工作方式", "自动定时处理")+
+    '<div class="sc-help">后台会定时把“等待入库”的照片归档进照片库（按内容识别重复照片、读取拍摄时间后归档，不修改原图）。归档是否繁忙请到「照片同步状态」页查看“上传处理空闲”一项。</div>');
+  // 照片数据卡
+  h+=card('<h3>照片数据</h3>'+
+    row("照片总数（含已清理）", c.assets)+
+    row("其中本地已清理", c.assets_missing)+
+    row("等待入库处理", c.pending_upload)+
+    row("正在处理中", c.processing)+
+    row("累计上传批次", c.sessions_total)+
+    '<div class="sc-help">每张照片在库中都有一份唯一记录（用于识别重复照片），即使本地文件已被清理也保留着；「本地已清理」的照片不会在照片页显示（系统清理会自动隐藏；个别外部误删可用维护命令重新核对）。「等待入库处理」＝已上传完成、后台还没归档的数量。</div>');
+  // 服务卡
+  h+=card('<h3>服务</h3>'+
+    row("网页与接口服务", (d.worker&&d.worker.status)==="running"?"运行中":"-")+
+    '<div class="sc-help">网页与上传接口由本服务提供；页面数据均来自实时数据库。</div>');
+  $("sysCards").innerHTML=h;
+  log("系统状态刷新");
+}catch(e){ $("sysCards").innerHTML='<div class="bad">系统状态加载失败：'+esc(e.message)+'</div>'; log("系统刷新失败 "+e.message); } }
+
+(async()=>{ try{await init();}catch(e){ log(e.message); } })();
+</script>
+</body>
+</html>

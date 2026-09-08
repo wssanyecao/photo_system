@@ -1,0 +1,102 @@
+# =====================================================================
+# Photo Gateway V1 —— 配置文件示例 (YAML, spec: config-spec Frozen Baseline)
+# ---------------------------------------------------------------------
+# 校验命令：
+#     python -m photo_gateway --config config/photo-gateway.example.yaml --check
+#
+# 生产运行时把本文件复制为 /etc/photo-gateway/config.yaml 使用（chmod 600，
+# 并填入真实 password_hash）。本示例不包含真实口令哈希，故 auth.enabled=false；
+# 需启用认证时按 spec 填入正确 hash 并置 true。
+# =====================================================================
+
+version: 1
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+auth:
+  enabled: false            # 本示例未提供真实口令哈希；启用认证需生成 password_hash
+  # username: admin
+  # password_hash: "$2b$12$..."   # bcrypt / 符合 spec 的 hash
+  session_ttl_hours: 24
+
+devices:
+  # 推荐：把每台用于上传照片的设备登记成一项（id 为设备标识，name 仅用于展示）。
+  # 按你实际设备替换下面示例即可；id 用于识别“照片来自哪台设备”。
+  - id: phone-xiaomi
+    name: 小米手机
+    enabled: true
+  - id: phone-iphone
+    name: iPhone
+    enabled: true
+  - id: camera-pc
+    name: 电脑/相机导入
+    enabled: true
+
+storage:
+  root: /mnt/sda1/photo-gateway   # 示例：请改成你的数据盘目录（开发调试时可换成本地目录）
+  incoming: incoming
+  processing: processing
+  failed: failed
+  archive: Photos
+  database: database/photo-gateway.db
+  logs: logs
+
+upload:
+  concurrency: 1
+  precheck:
+    batch_size: 5
+  allowed_extensions:
+    - jpg
+    - jpeg
+    - png
+    - heic
+    - heif
+    - webp
+    - tif
+    - tiff
+    - cr2
+    - cr3
+    - nef
+    - arw
+    - dng
+    - raf
+    - orf
+    - rw2
+  tmp_cleanup:
+    enabled: true
+    max_age_days: 7
+
+processing:
+  worker_count: 1
+
+metadata:
+  date_priority:
+    - DateTimeOriginal
+    - CreateDate
+    - ModifyDate
+    - file_mtime
+
+disk:
+  warning_percent: 80
+  critical_percent: 90
+  stop_percent: 95
+
+logging:
+  level: INFO
+  rotation:
+    max_size_mb: 50
+    retention_days: 30
+
+# WebUI 偏好(可选)：照片页每页显示张数(默认 12)
+webui:
+  photos_page_size: 12
+
+# 缩略图缓存(可选)：cache_dir 相对 storage.root（默认 thumbnails）；
+# cleanup 过期清理默认开启、90 天(mtime)，由 serve 维护任务周期执行(启动一轮 + 每 24h)
+thumbnails:
+  cache_dir: thumbnails
+  cleanup:
+    enabled: true
+    max_age_days: 90

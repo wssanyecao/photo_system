@@ -1,0 +1,9 @@
+# Photo Gateway — 运行时依赖（V1）
+# 目标环境：NanoPi R5S (ImmortalWrt / ARM), Python 3.12 (conda: photo-system)
+# 依赖保持精简，避免嵌入式环境部署负担。
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+PyYAML>=6.0
+Pillow>=10.0
+pydantic>=2.7
