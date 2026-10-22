@@ -16,7 +16,14 @@ from PIL import Image
 
 from photo_gateway.config import load_yaml_text
 from photo_gateway.http import MAINTENANCE_INTERVAL_SECONDS, _run_maintenance
-from photo_gateway.thumbnails import cleanup_thumbnails, ensure_thumbnail, thumbnail_file
+from photo_gateway.thumbnails import (
+    cleanup_thumbnails,
+    drop_thumbnail,
+    ensure_preview,
+    ensure_thumbnail,
+    preview_file,
+    thumbnail_file,
+)
 
 
 def _age_file(p: Path, seconds_old: float) -> None:
@@ -53,6 +60,38 @@ def test_ensure_thumbnail_uses_given_cache_dir(tmp_path):
     assert out == thumbnail_file(cache, 7) == cache / "7.jpg"
     assert out.exists()
     assert ensure_thumbnail(cache, 7, src) == out  # 命中缓存，不重复生成
+
+
+def test_heif_dependency_generates_jpeg_thumbnail(tmp_path):
+    from photo_gateway.heif import register
+
+    assert register() is True
+    src = tmp_path / "sample.heic"
+    Image.new("RGB", (320, 180), (80, 120, 160)).save(src, format="HEIF")
+    out = ensure_thumbnail(tmp_path / "heif-cache", 8, src)
+    assert out is not None and out.exists()
+    with Image.open(out) as thumb:
+        assert thumb.format == "JPEG"
+        assert max(thumb.size) <= 256
+
+
+def test_heif_dependency_generates_large_jpeg_preview(tmp_path):
+    from photo_gateway.heif import register
+
+    assert register() is True
+    src = tmp_path / "sample.heic"
+    Image.new("RGB", (2400, 1600), (80, 120, 160)).save(src, format="HEIF")
+    cache = tmp_path / "heif-cache"
+    out = ensure_preview(cache, 9, src)
+    assert out == preview_file(cache, 9) and out.exists()
+    with Image.open(out) as preview:
+        assert preview.format == "JPEG"
+        assert max(preview.size) <= 2048
+
+    ensure_thumbnail(cache, 9, src)
+    assert drop_thumbnail(cache, 9) is True
+    assert not thumbnail_file(cache, 9).exists()
+    assert not preview_file(cache, 9).exists()
 
 
 def test_thumbnail_file_path_shape(tmp_path):

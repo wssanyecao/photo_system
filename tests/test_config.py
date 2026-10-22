@@ -56,6 +56,23 @@ def test_storage_relative_resolves_under_root():
     )
 
 
+@pytest.mark.parametrize("field,value", [
+    ("incoming", "../outside"),
+    ("archive", "/srv/other/photos"),
+    ("database", "../../photo.db"),
+])
+def test_storage_paths_cannot_escape_root(field, value):
+    import yaml as _y
+    data = {
+        "version": 1,
+        "auth": {"enabled": False},
+        "devices": [{"id": "cam1"}],
+        "storage": {"root": "/data/photo", field: value},
+    }
+    with pytest.raises(ConfigError, match="storage.root 内"):
+        load_yaml_text(_y.safe_dump(data, sort_keys=False))
+
+
 # ---------------------------------------------------------------------------
 # 最小配置（全部用默认/参数化）正确通过业务校验
 # ---------------------------------------------------------------------------

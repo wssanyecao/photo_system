@@ -42,7 +42,7 @@ def test_migration_v2_creates_tables(conn):
 
 def test_migrate_idempotent_v2(conn):
     m = migrate(conn)
-    assert m == 3   # 1=V1 表, 2=V2 表, 3=photo_assets.file_missing_at（幂等）
+    assert m == 4   # V1/V2/soft-missing/回收站（幂等）
 
 
 def _mk_months(root, months):

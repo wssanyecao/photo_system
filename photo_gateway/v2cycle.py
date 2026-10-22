@@ -313,6 +313,19 @@ def cleanup_candidates(conn, archive_root: Path, retention_days: int,
         except (TypeError, ValueError) as exc:
             out.append({"month": month, "remove": False, "reason": "bad success time"})
             continue
+        # 回收站恢复/重新导入之后，旧 SUCCESS 不再能证明本地月目录已经同步。
+        # 在有新的成功同步任务前，禁止 CLI 清理删除刚刚恢复的原件。
+        recent_restore = conn.execute(
+            "SELECT MAX(e.created_at) FROM photo_recycle_events e"
+            " JOIN photo_assets pa ON pa.id=e.asset_id"
+            " WHERE pa.archive_path LIKE ? AND pa.lifecycle_state='ACTIVE'"
+            " AND e.action IN ('RESTORED','REIMPORTED')",
+            (f"Photos/{rel}/%",),
+        ).fetchone()[0]
+        if recent_restore and recent_restore > latest["completed_at"]:
+            out.append({"month": month, "remove": False,
+                        "reason": "restored since last success; resync required"})
+            continue
         now_naive = now.replace(tzinfo=None) if now.tzinfo else now
         aged = (now_naive - finished) >= timedelta(days=retention_days)
         if not aged:
@@ -346,7 +359,7 @@ def cleanup_expired(conn, archive_root: Path, retention_days: int,
             # 本地已删：标记该月资产缺失（列表/UI 不再展示；去重身份保留）
             conn.execute(
                 "UPDATE photo_assets SET file_missing_at=?, updated_at=?"
-                " WHERE archive_path LIKE ?",
+                " WHERE archive_path LIKE ? AND lifecycle_state='ACTIVE'",
                 (now_str(), now_str(), f"Photos/{rel}/%"),
             )
             conn.commit()

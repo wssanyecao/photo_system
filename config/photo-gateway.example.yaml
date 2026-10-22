@@ -18,7 +18,7 @@ server:
 auth:
   enabled: false            # 本示例未提供真实口令哈希；启用认证需生成 password_hash
   # username: admin
-  # password_hash: "$2b$12$..."   # bcrypt / 符合 spec 的 hash
+  # password_hash: "scrypt$..."   # 由 `python -m photo_gateway hash-password` 生成
   session_ttl_hours: 24
 
 devices:
@@ -108,3 +108,20 @@ thumbnails:
   cleanup:
     enabled: true
     max_age_days: 90
+
+# V2 NAS 同步（可选；启用时建议显式配置 known_hosts 并校验 NAS host key 指纹）
+# sync:
+#   enabled: false
+#   nas:
+#     host: nas.example.local
+#     ssh_port: 22
+#     ssh_user: photo-sync
+#     ssh_key: /home/photo-gateway/.ssh/nas_key
+#     known_hosts: /home/photo-gateway/.ssh/known_hosts
+#     target_root: /data/Photos
+
+# 仅运行主机本地回收站（不影响 NAS）
+recycle_bin:
+  enabled: true
+  retention_days: 30
+  auto_purge: true

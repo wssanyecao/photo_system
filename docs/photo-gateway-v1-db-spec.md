@@ -115,7 +115,7 @@ PRAGMA busy_timeout=5000;
 
 - 允许 WebUI/API 读取数据库时 Worker 继续工作
 - 降低读写冲突
-- 提高 R5S 上的稳定性
+- 提高 legacy-host 上的稳定性
 
 V1 Worker 数量固定为：
 
@@ -1387,7 +1387,7 @@ V1 统一采用服务器侧规则：
 
 > 正式归档文件名保留原始大小写；冲突判断直接使用目标文件系统实际 `exists()` 结果，不自行假设大小写不敏感。
 
-R5S 实际运行 Linux，因此：
+legacy-host 实际运行 Linux，因此：
 
 - 文件名比较采用大小写敏感字符串比较
 - 以 Linux 文件系统实际路径为最终判断依据
@@ -1688,7 +1688,7 @@ Photos/2026/202609/IMG.jpg
 但：
 photo_assets INSERT 尚未 commit
 
-R5S 突然断电
+legacy-host 突然断电
 ```
 
 重启以后：
@@ -2512,7 +2512,7 @@ upload percentage
 
 数据库只记录关键状态。
 
-这样可以减少 R5S 上的 SQLite 写入压力。
+这样可以减少 legacy-host 上的 SQLite 写入压力。
 
 ---
 
@@ -3097,3 +3097,7 @@ Photos/YYYY/YYYYMM/
 目录规范。
 
 后续 API、WebUI、Worker 实现必须以本 V1 数据模型为基础，不得在代码层自行增加与本文档冲突的状态、字段或数据关系。
+
+## V1.4 附录 — 回收站迁移
+
+schema_version=4：`photo_assets.lifecycle_state`（ACTIVE/TRASHED/PURGED）、`deleted_at`、`purged_at` 与索引，新增 `photo_recycle_events(asset_id,action,created_at)`，历史资产默认 ACTIVE。原 `file_missing_at` 保留用于本地缺失及历史月份 Cleanup，不代表主动删除。上传项 `REVIEW_REQUIRED` 在完成内容级 SHA-256 判定后待人工决策，回收站实体过期可删但 SHA 身份不可删。

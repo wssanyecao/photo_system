@@ -12,6 +12,7 @@ Bearer 认证(§6)、未认证 401 AUTH_REQUIRED(§7)。
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,7 @@ from .security import (
 )
 
 SH = timezone(timedelta(hours=8))
+_FALLBACK_LOG = logging.getLogger("photo_gateway.http")
 
 # 统一信封（api-spec §9）
 def ok(data=None) -> dict:
@@ -42,7 +44,7 @@ def err_response(code: str, message: str, http: int) -> JSONResponse:
     return JSONResponse(status_code=http, content=body)
 
 
-# 维护任务周期：启动先执行一轮，之后每 24h（config-spec §63.3 / upload.tmp_cleanup）
+# 维护任务周期：由 background.V1 线程调度；保留常量供日志/测试引用。
 MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
 
 
@@ -96,92 +98,26 @@ def create_app(cfg, db_conn=None, db_path=None, dirs=None, logman=None) -> FastA
     """装配应用。
 
     db_conn/db_path 二选一：既有测试传 db_conn(未落盘)；运行服务传 db_path + dirs(每次请求重开连接)。
-    dirs 提供 incoming/archive/logs 等已解析绝对路径；提供时开启后台 Worker 单传(Ticker)让上传文件自动归档。
+    dirs 提供 incoming/archive/logs 等已解析绝对路径；提供时开启 V1 归档线程，
+    sync.enabled=true 时另启 V2 NAS 同步线程；两者通过归档锁协调。
     logman：LoggingManager 实例；提供后 Worker/upload 会写入 processing.log / upload.log（serve 场景）。
     """
-    import asyncio
-
     store = SessionStore(ttl_hours=cfg.auth.session_ttl_hours)
-    _worker: asyncio.Task | None = None
-    _synctask: asyncio.Task | None = None
-    _maintask: asyncio.Task | None = None
+    workers = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal _worker, _synctask, _maintask
+        nonlocal workers
         if db_path and dirs and db_path is not None:
-            from .db import connect as _connect
-
-            async def _tick():
-                while True:
-                    try:
-                        c = _connect(db_path)
-                        try:
-                            from .worker import run_round
-                            run_round(c, cfg, dirs, logman)   # logman=None 时静默（测试场景）
-                        finally:
-                            c.close()
-                    except Exception as exc:
-                        # 单次失败不中断 worker；但异常必须落日志（此前静默，
-                        # 导致 R5S 等环境“上传后一直等待归档却无任何日志可查”）
-                        if logman is not None:
-                            try:
-                                logman.processing().error(
-                                    "v1 worker round error",
-                                    event="v1_worker_error", error=str(exc),
-                                    exc_info=True)
-                            except Exception:
-                                pass
-                    await asyncio.sleep(2)   # 必须在 while 主体（正常/异常路径都睡眠，避免空转占满事件循环）
-
-            _worker = asyncio.create_task(_tick())
-
-            # 维护任务：tmp / 缩略图过期清理（启动先执行一轮，之后每 24h）
-            async def _mtick():
-                while True:
-                    try:
-                        _run_maintenance(cfg, dirs, logman)
-                    except Exception:
-                        pass  # 单次失败不中断；下次周期再试
-                    await asyncio.sleep(MAINTENANCE_INTERVAL_SECONDS)
-
-            _maintask = asyncio.create_task(_mtick())
-
-            # V2：启用了 sync 时按 cycle_interval_seconds 周期跑一个 run_cycle
-            archive = dirs.get("archive") or cfg.storage.resolved_archive()
-            if cfg.sync is not None and cfg.sync.enabled and archive:
-                from .v2runner import run_once
-                plog = logman.processing() if logman is not None else None
-
-                async def _vtick():
-                    interval = cfg.sync.worker.cycle_interval_seconds
-                    while True:
-                        try:
-                            c = _connect(db_path)
-                            try:
-                                run_once(c, cfg, archive,
-                                         cleanup=cfg.sync.cleanup.enabled,
-                                         dry_run_cleanup=True,  # 周期自动清理仍走 dry(实际删除留 flag/人工)
-                                         log=plog)
-                            finally:
-                                c.close()
-                        except Exception as exc:
-                            # 周期任务不退出；异常入 processing 日志（v2-spec §42）
-                            if plog is not None:
-                                plog.error(f"v2 cycle error: {exc}",
-                                           event="v2_cycle_error")
-                        await asyncio.sleep(interval)
-
-                _synctask = asyncio.create_task(_vtick())
+            from .background import BackgroundWorkers
+            workers = BackgroundWorkers(cfg, Path(db_path), dirs, logman)
+            workers.start()
+            app.state.pg["workers"] = workers
         try:
             yield
         finally:
-            if _synctask:
-                _synctask.cancel()
-            if _worker:
-                _worker.cancel()
-            if _maintask:
-                _maintask.cancel()
+            if workers is not None:
+                workers.stop()
 
     app = FastAPI(title="Photo Gateway V1", version=__version__, lifespan=lifespan)
     from .preview_sign import new_secret
@@ -203,8 +139,11 @@ def create_app(cfg, db_conn=None, db_path=None, dirs=None, logman=None) -> FastA
         return err_response("BAD_CONFIG", str(exc), 500)
 
     @app.exception_handler(Exception)
-    async def _on_unexpected(_: Request, exc: Exception):
-        # 未知异常：以 500 内部错误信封返回（日志由 logging 层负责）
+    async def _on_unexpected(req: Request, exc: Exception):
+        _FALLBACK_LOG.error(
+            "unhandled request error method=%s path=%s: %s",
+            req.method, req.url.path, exc, exc_info=True,
+        )
         return err_response("INTERNAL_ERROR", "internal server error", 500)
 
     @app.get("/api/v1/health")
@@ -253,6 +192,8 @@ def create_app(cfg, db_conn=None, db_path=None, dirs=None, logman=None) -> FastA
     if db_conn is not None or db_path is not None:
         from . import api_sessions as _sess
         app.include_router(_sess.router)
+        from . import recycle_api
+        app.include_router(recycle_api.router)
 
     return app
 

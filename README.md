@@ -61,14 +61,25 @@ mkdir -p ~/photo-gateway-data
 
 ### 2. 安装
 
-需要 Python 3.12：
+本地开发需要 Python 3.12：
 
 ```bash
 pip install -r requirements-dev.txt
 ```
 
-如果 Python 环境很干净（没有装 Pillow 等二进制包），也可以按需安装：
-`fastapi`、`uvicorn`、`python-multipart`、`PyYAML`、`Pillow`、`pydantic`（见 `requirements.txt`）。
+运行依赖统一由 `requirements.txt` 安装，其中 `pillow-heif` 为必装依赖，用于
+HEIC/HEIF 的拍摄时间读取、缩略图与跨浏览器预览。
+
+docker-host 生产环境使用 Docker Compose，避免依赖 Debian 13 宿主机 Python 版本：
+
+```bash
+# 仅展示入口；先阅读 deploy/docker-host/README.md，生产执行需单独批准
+sudo deploy/docker-host/install-docker.sh
+# Mac：构建 linux/amd64 镜像、校验并同步
+./docker_build_rsync.sh
+# docker-host：选择最新镜像、校验、导入并启动
+/data/compose/photo-system/load_start.sh
+```
 
 ### 3. 生成你自己的配置
 
@@ -111,7 +122,7 @@ python -m photo_gateway serve --config config/photo-gateway.local.yaml   # 启�
 sync:
   enabled: true
   nas:
-    host: "192.168.1.50"          # NAS 地址
+    host: "nas.example.local"          # NAS 地址
     ssh_port: 22
     ssh_user: "backup"            # NAS 上用于同步的账号
     ssh_key: "/home/user/.ssh/id_ed25519"
@@ -151,12 +162,9 @@ sync:
 
 iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.allowed_extensions`）：
 
-- **默认**：服务端读取不到 HEIC 的拍摄信息与缩略图（Pillow 不含 HEIC 解码），归档时间回退文件时间；网页上该图能否显示取决于浏览器——**Safari / iOS 可直接显示 HEIC，桌面 Chrome/Edge 多数不支持**（不支持的浏览器会显示“无法预览”占位卡，可点“新窗口打开原图”下载后用系统软件查看）。
-- **推荐（可选）**：在运行主机安装 `pillow-heif` 后自动启用 HEIC 支持——拍摄时间/缩略图/各浏览器预览全部可用：
-  ```bash
-  pip install pillow-heif
-  ```
-  它是**可选**依赖，未安装不会影响其它功能（系统按“读不到→回退/占位”运行）；如果你的部署环境（如部分 OpenWrt/低内存设备）装不了，跳过即可。
+- `pillow-heif` 已是正式运行依赖：HEIC 可读取拍摄时间、生成 JPEG 缩略图；点击大图时由服务端生成
+  最大 2048px 的 JPEG 预览，因此 Chrome/Edge/Firefox 不需要原生支持 HEIC。右上角仍可打开或下载原文件。
+- 单个损坏或不兼容文件仍按“读不到→回退文件时间/占位”处理，不会拖垮整个服务；注册失败会写错误日志。
 
 ---
 
@@ -190,13 +198,27 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
 | --- | --- | --- | --- |
 | `check` | 检查配置 | 每次改配置后 | 报错会说明原因 |
 | `hash-password` | 生成登录密码的加密串 | 开启登录保护前 | 结果写入配置 |
-| `serve` | 启动网页与后台服务 | 日常运行 | 改配置后需重启 |
+| `serve` | 启动网页与后台服务 | 日常运行 | 改配置后需重启；Docker 部署由 Compose 管理，不能在宿主机另行运行 |
+| `db-backup` | 生成 SQLite Online Backup 一致快照 | 迁移前、升级前或定期备份 | 输出含已提交 WAL 数据，不改原库；成功后仍须复制到独立存储 |
 | `maintenance` | 手动清理过期临时文件/预览缓存 | 磁盘紧张或不想等每日自动清理 | 只删过期缓存 |
 | `maintenance --scan-missing` | 核对并隐藏“本地文件已丢”的照片 | 外部误删文件后 | 只标记不删除 |
 | `backfill-exif` | 为旧照片补读拍摄信息 | 老库升级后 | 可重复执行 |
 | `align-mtime` | 把旧文件时间对齐到拍摄时间 | 时间线错乱 | 可重复执行 |
 | `cleanup` | 预览哪些历史月份可清理（不删） | 想看看候选 | 安全预览 |
 | **`cleanup --apply --yes`** | **真正删除本机已同步的历史月份副本** | 确认 NAS 已有备份后 | **不可逆；需两个参数同时给**，删除会记录日志 |
+
+全局 `python -m photo_gateway --version` 可查看版本，`python -m photo_gateway --help` 可列出全部命令与参数。
+
+Docker/docker-host 中执行一致性数据库备份：
+
+```bash
+cd /data/compose/photo-system
+docker compose --env-file .env -f compose.yaml exec -T photo-gateway \
+  python -m photo_gateway db-backup --config /etc/photo-gateway/config.yaml
+```
+
+默认输出为 `storage.root/backups/photo-gateway-时间.db`。该文件是可迁移的单文件 SQLite 快照，包含已提交的
+WAL 事务；它不会改写当前数据库或截断 WAL。备份成功后应完成完整性校验，并复制到 docker-host 之外的独立存储。
 
 完整说明（参数细节、每个输出的含义）见网页“说明”页与下方“给开发者和维护者”的文档链接。
 
@@ -208,7 +230,7 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
 
 - Python 3.12 + FastAPI + SQLite + Pillow + PyYAML；前端为无框架的单文件页面 `photo_gateway/webui/index.html`。
 - 代码目录：`photo_gateway/`（config 配置 / db 数据库迁移 / upload 上传 / worker 归档 / v2* 同步 / http 装配 / webui）。
-- 测试：`python -m pytest tests/ -q`（141 项：配置/日志/DB 迁移/上传会话/归档去重/同步与清理/API/WebUI 等）。
+- 测试：`python -m pytest tests/ -q`（配置/日志/DB 迁移/上传会话/归档去重/同步与清理/API/WebUI/Docker 后台模型等）。
 
 ### 核心概念
 
@@ -217,7 +239,15 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
   - v2 = “同步与清理”：周期把新月份同步到 NAS，失败隔离/人工重试，超保留期后可清理本机历史。
 - **时间线正确性**：EXIF(DateTimeOriginal/…) → 客户端文件修改时间(modified_ms) → 文件时间兜底；归档后把磁盘 mtime 对齐到拍摄时间；同步用 `rsync -rt` 保留 mtime。EXIF 日期支持多层 IFD（DateTimeOriginal 位于 0x8769 子 IFD）。
 - **资产与删除**：`photo_assets` 记录是“去重身份”，不随文件删除而删；本地文件缺失时置 `file_missing_at`（照片页隐藏），同内容再次上传自动“复活”本地副本。删除语义 = 本机删、NAS 留。
-- **运维入口**：删除类唯一真删入口是 `cleanup --apply --yes`；周期任务永远只预览（dry-run），写审计日志。
+- **运维入口**：历史月份清理的唯一真删入口仍是 `cleanup --apply --yes`；用户单张照片删除则走网页回收站并记录审计。V2 周期任务永远只预览历史月份清理（dry-run）。
+
+### AI 研发工作流与跨平台接力
+
+本项目参照 `ai-dev-workflow` 通用规范（初始接入基线 `82541ee`；2026-10-15 按负责人批准同步分支与发布治理，来源记录 `597e086`）进行开发协作：AI 按风险自动选择轻量、标准或完整执行流程，保留现有工程质量门禁与已冻结的业务规格。跨 AI 平台继续工作前，应先阅读 `docs/HANDOFF.md`，并核对真实 Git 状态与测试结果。
+
+正式发布采用短期开发分支、验证与隐私检查、Squash Merge 到 `main`；只推送 `main`。完整开发历史和归档引用保留在本地，不随发布推送。发布检查覆盖最终文件、待公开提交的内容、提交说明及作者信息；不默认改写已公开历史。
+
+**本项目的完整 `AGENTS.md` 仅保存在项目负责人本机，由本地 `.gitignore` 忽略，不随公开 Git 仓库分发。** 使用其他电脑或 AI 平台时，须经负责人授权从本地或其他安全渠道获取；公开仓库中的 README、HANDOFF、Skills 不等于完整私有协作规范。`docs/HANDOFF.md` 属公开文档，不得记录敏感信息。
 
 ### 文档导航（规范与详情）
 
@@ -231,6 +261,10 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
 | `docs/photo-gateway-v2-spec.md` | v2（同步/清理）状态机（权威） |
 | `docs/db-field-dictionary.md` | 全部数据库字段中文速查 |
 | `DEVELOPMENT.md` | 环境/常用命令/变更记录(Changelog)/已知缺口 |
+| `ENVIRONMENT.md` | 开发/测试/legacy-host 旧生产/docker-host Docker 新生产的唯一环境说明 |
+| `docs/photo-gateway-container-deployment.md` | docker-host Docker 部署架构与发布门槛 |
+| `docs/HANDOFF.md` | 公开安全的任务交接状态；跨平台接手前先核验 Git 与测试证据 |
+| `skills/task-handoff/SKILL.md` | HANDOFF 的更新与跨 AI 平台交接操作说明 |
 
 > 规范文档按“冻结基线 + 已批准扩展附录”演进（如 `config-spec §63`、`api-spec §88`、`db-spec §40`），
 > 新增语义会先回写附录再实现，保持可追溯。二次开发前请先读对应 spec。
@@ -239,7 +273,7 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
 
 - 真实 NAS（rsync over SSH）已在局域网实测：首次同步、故障隔离（ABNORMAL）与“重试”恢复全链路通过；浏览器自动化端到端与 ARM 小主机实机演练尚未进行。
 - EXIF 三类日期源读取做了简化合并（多层 IFD 已正确读取），`date_source` 可能不严格区分三种 EXIF 源。
-- 失败文件在网页端暂未提供“自动补传”，需回到上传页重选；WebUI 无清理删除按钮（删除走命令行）。
+- 失败文件在网页端暂未提供“自动补传”，需回到上传页重选；WebUI 无历史月份批量清理按钮（该操作走命令行）；单张照片可由照片预览移入回收站。
 - 开启登录保护前请确认：`auth.enabled=true`、配置权限 `chmod 600`、仅内网/反代使用。
 
 ---
@@ -247,3 +281,21 @@ iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.a
 ## 许可
 
 [MIT License](LICENSE)
+
+## V1.4 — 本地回收站和删除
+
+在“照片”页面打开预览，点击“移入回收站”，本地原件会立即从 `Photos` 移走，停止参与后续 NAS 同步。页面“回收站”可预览并手动恢复；恢复后重新允许同步。默认 30 天后清理回收站实体文件，保留 SHA-256 去重身份和删除审计记录。已同步至 NAS 的文件不会被撤回，系统**不会从 NAS 删除任何数据**。
+
+上传相同内容（SHA-256 命中回收站或永久清理的资产）时，须在上传页确认“保持删除”或“恢复/重新导入”，绝不会自动恢复。待确认文件隔离在 `review_pending` 目录，默认 7 天未处理则标记超时失败。本地目录历史清理 `cleanup --apply --yes` 与用户删除相互独立。配置项见 `docs/photo-gateway-v1.4-recycle-bin-spec.md`，可选：
+```yaml
+recycle_bin:
+  enabled: true
+  retention_days: 30
+  auto_purge: true
+```
+
+**部署提醒**：新镜像首次启动会将 SQLite schema 升级至 v4。升级前应通过 `db-backup` 生成一致快照，并在独立存储保留回滚副本；旧镜像不能直接复用新数据库进行版本回退。详细升级/恢复流程见 `deploy/docker-host/README.md`。
+
+### 统一照片/回收站浏览体验
+
+点击照片页中的“回收站”会直接替换当前照片列表，保留相同的照片网格、右侧信息栏、分页和筛选功能。标题变为“回收站”，右上角变为“返回照片”；点击回收站照片默认放大，灯箱主按钮为“恢复照片”。时间筛选仍为原始拍摄/上传时间，并非删除日期。回收站详情可查看删除时间与预计清理时间。

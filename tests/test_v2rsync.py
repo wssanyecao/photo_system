@@ -18,7 +18,8 @@ def _sync_cfg(enabled=True):
         "devices": [{"id": "a"}], "storage": {"root": "/tmp/pg"},
         "sync": {"enabled": enabled, "nas": {
             "host": "nas.local", "ssh_port": 22, "ssh_user": "photo-sync",
-            "ssh_key": "/root/.ssh/pg", "target_root": "/data/Photos",
+            "ssh_key": "/root/.ssh/pg", "known_hosts": "/root/.ssh/known_hosts",
+            "target_root": "/data/Photos",
         }},
     }, sort_keys=False)).sync
 
@@ -39,6 +40,8 @@ def test_alive_ok_uses_batchmode(run):
     assert _adapter().alive() is True
     argv = run.call_args[0][0]
     assert "ssh" in argv and any("BatchMode" in a for a in argv)
+    assert "StrictHostKeyChecking=yes" in argv
+    assert "UserKnownHostsFile=/root/.ssh/known_hosts" in argv
 
 
 @mock.patch("subprocess.run")

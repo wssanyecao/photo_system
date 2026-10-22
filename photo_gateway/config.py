@@ -73,6 +73,17 @@ class _StorageConfig(BaseModel):
     database: str = "database/photo-gateway.db"
     logs: str = "logs"
 
+    @model_validator(mode="after")
+    def _keep_children_under_root(self) -> "_StorageConfig":
+        """拒绝业务路径逃逸 storage.root（config-spec §21）。"""
+        root = Path(self.root).expanduser().resolve(strict=False)
+        for field in ("incoming", "processing", "failed", "archive", "database", "logs"):
+            raw = Path(getattr(self, field)).expanduser()
+            resolved = (raw if raw.is_absolute() else root / raw).resolve(strict=False)
+            if resolved == root or not resolved.is_relative_to(root):
+                raise ValueError(f"storage.{field} 必须位于 storage.root 内: {resolved}")
+        return self
+
     def resolve(self, sub: str) -> Path:
         """把某子目录配置项解析为绝对路径并返回（不创建）。"""
         p = Path(sub).expanduser()
@@ -283,6 +294,7 @@ class _SyncNas(BaseModel):
     ssh_port: int = 22
     ssh_user: Optional[str] = None
     ssh_key: Optional[str] = None
+    known_hosts: Optional[str] = None
     target_root: Optional[str] = None
 
     @field_validator("ssh_port")
@@ -297,6 +309,16 @@ class _SyncSource(BaseModel):
     model_config = {"extra": "forbid"}
 
     root: Optional[str] = None
+
+    @field_validator("root")
+    @classmethod
+    def _absolute_when_set(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v or not Path(v).expanduser().is_absolute():
+            raise ValueError("sync.source.root 必须是绝对路径")
+        return v
 
 
 class _SyncWorkerCfg(BaseModel):
@@ -421,6 +443,21 @@ class _ThumbnailsConfig(BaseModel):
         return p
 
 
+class _RecycleBinConfig(BaseModel):
+    """本地回收站；不属于单向 NAS 同步目录。"""
+    model_config = {"extra": "forbid"}
+    enabled: bool = True
+    retention_days: int = 30
+    auto_purge: bool = True
+
+    @field_validator("retention_days")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("recycle_bin.retention_days 必须 >= 1")
+        return v
+
+
 class V1Config(BaseModel):
     """V1 完整配置（顶层），与 config-spec §55 结构对应；`sync` 为 V2 可选块、`webui`/`thumbnails` 为可选段。"""
 
@@ -440,6 +477,7 @@ class V1Config(BaseModel):
     webui: _WebuiConfig = Field(default_factory=_WebuiConfig)
     # 缩略图缓存（可选顶层段，缺省使用默认值；config-spec §63.3）
     thumbnails: _ThumbnailsConfig = Field(default_factory=_ThumbnailsConfig)
+    recycle_bin: _RecycleBinConfig = Field(default_factory=_RecycleBinConfig)
     # V2（可选）：不提供 sync → None；提供时强校验
     sync: Optional[_SyncConfig] = None
 
@@ -462,9 +500,18 @@ class V1Config(BaseModel):
     def enabled_device_ids(self) -> List[str]:
         return [d.id for d in self.devices if d.enabled]
 
+    def resolved_recycle_bin(self) -> Path:
+        return Path(self.storage.root).expanduser() / "recycle_bin"
+
     def resolved_thumbnails(self) -> Path:
         """缩略图缓存目录（config-spec §63.3；相对 storage.root 解析，不创建）。"""
         return self.thumbnails.resolve(self.storage.root)
+
+    def resolved_sync_source(self) -> Path:
+        """V2 源目录：显式 sync.source.root 优先，否则使用 V1 归档目录。"""
+        if self.sync is not None and self.sync.source.root:
+            return Path(self.sync.source.root).expanduser()
+        return self.storage.resolved_archive()
 
 
 class ConfigError(Exception):

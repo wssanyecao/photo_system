@@ -35,6 +35,29 @@ def _seed_asset(root) -> int:
     return aid
 
 
+def _seed_heif_asset(root) -> int:
+    from photo_gateway.heif import register
+
+    assert register() is True
+    photo = root / "Photos" / "2026" / "202602"
+    photo.mkdir(parents=True)
+    Image.new("RGB", (2400, 1600), (70, 110, 150)).save(
+        photo / "x.heic", format="HEIF"
+    )
+    conn = init_db(root / "db.sqlite")
+    now = "2026-09-01 10:00:00"
+    conn.execute(
+        "INSERT INTO photo_assets(sha256, original_filename, current_filename, file_size,"
+        " mime_type, date_taken, date_source, archive_path, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("H-HEIF", "x.heic", "x.heic", 1024, "image/heic",
+         "2026-02-10T10:00:00", "file_mtime", "Photos/2026/202602/x.heic", now, now),
+    )
+    aid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit(); conn.close()
+    return aid
+
+
 def _cfg(root, auth_enabled=False, thumbnails=None):
     data = {
         "version": 1,
@@ -81,6 +104,18 @@ def test_thumbnail_cache_dir_configurable(tmp_path):
         assert not (tmp_path / "thumbnails").exists()
 
 
+def test_heif_large_preview_is_browser_compatible_jpeg(tmp_path):
+    aid = _seed_heif_asset(tmp_path)
+    with TestClient(_app(tmp_path, auth=False)) as c:
+        response = c.get(f"/api/v1/photos/{aid}/preview")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("image/jpeg")
+        with Image.open(io.BytesIO(response.content)) as preview:
+            assert preview.format == "JPEG"
+            assert max(preview.size) <= 2048
+    assert (tmp_path / "thumbnails" / f"{aid}.preview.jpg").exists()
+
+
 def test_thumbnail_cache_dropped_when_source_deleted(tmp_path):
     """原图被删后：thumbnail/file 请求 404，且孤儿缓存缩略图一并清理（回归）。"""
     aid = _seed_asset(tmp_path)
@@ -103,9 +138,12 @@ def test_photos_list_has_signed_urls(tmp_path):
         j = c.get("/api/v1/photos?limit=5").json()
         photo = j["data"]["photos"][0]
         assert photo["thumbnail_url"].startswith(f"/api/v1/photos/{aid}/thumbnail")
-        assert "preview=" in photo["thumbnail_url"] and "preview=" in photo["file_url"]
+        assert photo["preview_url"].startswith(f"/api/v1/photos/{aid}/preview")
+        assert all("preview=" in photo[key]
+                   for key in ("thumbnail_url", "preview_url", "file_url"))
         # 直接带签名访问缩略图 → 200
         assert c.get(photo["thumbnail_url"]).status_code == 200
+        assert c.get(photo["preview_url"]).status_code == 200
 
 
 def test_auth_on_requires_signature(tmp_path):
@@ -113,12 +151,14 @@ def test_auth_on_requires_signature(tmp_path):
     with TestClient(_app(tmp_path, auth=True)) as c:
         # 无签名/Bearer → 401
         assert c.get(f"/api/v1/photos/{aid}/thumbnail").status_code == 401
+        assert c.get(f"/api/v1/photos/{aid}/preview").status_code == 401
         # 登录拿 Bearer → 列表含签名 url
         tok = c.post("/api/v1/auth/login", json={"username": "admin", "password": "pw"}).json()["data"]["token"]
         h = {"Authorization": f"Bearer {tok}"}
         j = c.get("/api/v1/photos?limit=5", headers=h).json()
-        url = j["data"]["photos"][0]["thumbnail_url"]
-        assert c.get(url).status_code == 200     # <img> 无需 header 也能加载
+        photo = j["data"]["photos"][0]
+        assert c.get(photo["thumbnail_url"]).status_code == 200
+        assert c.get(photo["preview_url"]).status_code == 200  # <img> 无需 header 也能加载
 
 
 def test_signature_reject_wrong_asset_and_expired(tmp_path):

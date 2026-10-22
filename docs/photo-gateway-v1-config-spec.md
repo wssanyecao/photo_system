@@ -628,7 +628,7 @@ xiaomi14 是否存在
 
 # 13. storage
 
-定义 R5S 本地存储结构。
+定义 legacy-host 本地存储结构。
 
 ```yaml
 storage:
@@ -953,7 +953,7 @@ worker_count = 1
 后台同时处理多少个照片文件
 ```
 
-由于 V1 实际运行在 R5S + USB HDD 上，推荐：
+由于 V1 实际运行在 legacy-host + USB HDD 上，推荐：
 
 ```text
 upload.concurrency = 1
@@ -1024,7 +1024,7 @@ processing:
 
 原因：
 
-R5S 的主要压力来自：
+legacy-host 的主要压力来自：
 
 ```text
 磁盘 I/O
@@ -2057,6 +2057,7 @@ sync:
     ssh_port: 22                    # SSH 端口(默认 22)
     ssh_user: "photo-sync"          # NAS 同步账号
     ssh_key: "/root/.ssh/pg-key"    # SSH 私钥
+    known_hosts: "/root/.ssh/known_hosts" # 可选；提供时强制校验该文件内 host key
     target_root: "/data/Photos"     # NAS Photo Root
   # source.root 可选：缺省由归档根推导（storage 下 Photos）
   worker:
@@ -2065,12 +2066,14 @@ sync:
     threshold: 3                    # 连续失败阈值(>=1)
   cleanup:
     enabled: true
-    synced_retention_days: 90       # 同步成功后 R5S 保留天数(>=1)
+    synced_retention_days: 90       # 同步成功后 legacy-host 保留天数(>=1)
 ```
 
 校验规则：
 
 - `sync.enabled=true` 时，`nas.{host, ssh_user, ssh_key, target_root}` 必须提供，否则启动失败；
+- `nas.known_hosts` 提供时，SSH 强制 `StrictHostKeyChecking=yes` 并只使用该文件；
+- `source.root` 提供时必须为绝对路径，且运行时优先于 `storage.archive`；
 - `ssh_port` 范围 1..65535；`worker.cycle_interval_seconds > 0`；
 - `failure.threshold >= 1`；`cleanup.synced_retention_days >= 1`；
 - 未知子键仍按 §3.3 拒绝。
@@ -2124,3 +2127,7 @@ mp4  mov  m4v  3gp  webm  mkv  avi
 - 各浏览器对视频编码（如 HEVC）支持不同，仅影响“网页内播放”，不影响上传/归档/同步。
 
 ---
+
+## V1.4 附录 — 本地回收站
+
+可选顶层 `recycle_bin`：`enabled` 默认 true，`retention_days` 默认 30（整数 >=1），`auto_purge` 默认 true。运行主机回收目录固定 `storage.root/recycle_bin`，不可配置为 NAS 同步目标。待决策文件在 `storage.root/review_pending`，7 天超时失败。归档和回收目录都必须通过安全路径校验。

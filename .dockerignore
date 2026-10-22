@@ -1,0 +1,17 @@
+.git
+.gitignore
+.pytest_cache
+.reasonix
+.venv
+.vscode
+.obsidian
+__pycache__
+*.pyc
+data_runtime
+local_scritps
+config/config.yaml
+agents_v1.md
+docs/AGENTS-revision-draft-v1.md
+.artifacts
+photo-system-*-linux-amd64.tar
+photo-system-*-linux-amd64.tar.sha256

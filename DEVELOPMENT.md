@@ -3,6 +3,8 @@
 （依据 docs 各 Frozen Spec 落地；总览/使用说明见 README，开发细节以本文件为准。）
 
 ## 环境
+
+环境权威说明见 [ENVIRONMENT.md](ENVIRONMENT.md)。本节仅保留本地开发命令。
 - conda 虚拟环境：`photo-system`（Python 3.12）
   ```bash
   conda activate photo-system
@@ -11,6 +13,10 @@
 
 ## 常用命令
 ```bash
+# 查看版本 / 全部 CLI 帮助
+python -m photo_gateway --version
+python -m photo_gateway --help
+
 # 校验配置（config-spec §53）
 python -m photo_gateway check --config config/photo-gateway.example.yaml
 
@@ -29,6 +35,11 @@ python -m photo_gateway maintenance --config config/photo-gateway.example.yaml -
 python -m photo_gateway backfill-exif --config config/photo-gateway.example.yaml
 python -m photo_gateway align-mtime --config config/photo-gateway.example.yaml
 
+# SQLite Online Backup（一致快照，拒绝覆盖已有目标）
+python -m photo_gateway db-backup --config config/photo-gateway.example.yaml
+# 指定输出路径（默认 storage.root/backups/photo-gateway-时间.db）
+python -m photo_gateway db-backup --config config/photo-gateway.example.yaml --output /path/to/snapshot.db
+
 # V2 Cleanup：预览候选月份（默认 dry-run，不删任何文件）
 python -m photo_gateway cleanup --config config/photo-gateway.example.yaml
 # 安全删除已达保留期(synced_retention_days)的本地已同步月份（--apply --yes 双确认，rmtree 不可逆；写 audit.log）
@@ -44,7 +55,7 @@ spec 认为 `storage.root` 必须先于程序存在（禁止程序自动 mkdir �
 ```bash
 python -m pytest tests/ -q
 ```
-覆盖：配置强校验 / 结构化日志 / 目录就绪 / SQLite v1+v2 schema 与约束 / Bearer 认证与信封 /
+覆盖：配置强校验 / 路径边界 / 结构化日志 / 目录就绪 / SQLite v1+v2 schema、备份与约束 / Bearer 认证与信封 /
 会话与 Precheck / `.tmp` 上传 / Worker 归档去重 / V2 cycle(含 ABNORMAL/Retry/Cleanup) / storage·Reliability /
 V2 概览与 RsyncNas 适配等。
 
@@ -59,7 +70,7 @@ V2 概览与 RsyncNas 适配等。
 - 上传：multipart 写 `incoming/<file>.tmp` → rename `UPLOADED`（无 Range），扩展名/磁盘门槛，会话统计；
   可选表单字段 `modified_ms`（客户端原文件修改时间, epoch ms）——无 EXIF 照片以它作为 file_mtime 兜底归档，
   避免把“上传时间”误当照片时间（EXIF 存在仍优先；未来/异常值自动忽略）
-- Worker(V1)：后台 ticker 自动归档 `Photos/YYYY/YYYYMM`（SHA256→EXIF/date→去重→photo_assets），
+- Worker(V1)：专用后台线程自动归档 `Photos/YYYY/YYYYMM`（SHA256→EXIF/date→去重→photo_assets），
   文件名 `_1/_2` 冲突递增不覆盖；重启恢复(processing→incoming+同步状态)
 - WebUI：上传向导（建 Session→预检→疑似重复决定→逐文件进度→完成后汇总）+ 照片页 + 系统页
 - 只读：`/photos`(分页)、`/photos/{id}/file`、`/system/status`
@@ -83,6 +94,14 @@ V2 概览与 RsyncNas 适配等。
 - 只读/操作：`/sync/status`(阈值/保留 + 各月最新 state)、`/sync/overview`(per-month + lowest task/success + cleanup eligibility
   + recent batches)、`POST /sync/months/{ym}/retry`(仅 ABNORMAL)
 - WebUI：“同步”页展示 overview/月份表/ABNORMAL Retry 按钮
+
+### docker-host 后台执行模型
+
+- Uvicorn/FastAPI 保持主线程事件循环；同步文件 I/O 不再直接阻塞事件循环。
+- `photo-v1-worker`：V1 归档轮询，并调度每日 tmp/缩略图维护。
+- `photo-v2-worker`：V2 NAS 探测、差异检查与 rsync。
+- 两线程使用归档锁串行访问 `Photos`，每轮在所属线程内建立/关闭 SQLite 连接。
+- 容器仍只允许一个应用实例；不得以 Uvicorn 多 worker 横向复制后台线程。
 
 ## V2 同步配置示例（追加到 config YAML）
 ```yaml
@@ -121,7 +140,7 @@ sync:
 - WebUI 桌面增强与灯箱（2026-09）：桌面内容随浏览器宽度弹性缩放（上限 1700px、vw padding）、顶栏三分布局导航居中、panel 标题色条、body 渐变；照片点击改为**灯箱原图预览**（按视口 contain 缩放，Esc/点空白关闭）；`GET /photos/{id}/file?inline=1` 返回无 content-disposition 的内联响应（新窗口查看原图），默认仍为附件下载。
 - 照片检索扩展（2026-09）：`GET /photos` 新增 `field=taken|uploaded`（检索维度：拍摄时间 date_taken / 上传时间 created_at；决定 date_from/date_to 过滤字段与排序键）与 `order=asc|desc`（默认 desc；同值按 id 定序）；缺省 field 保持旧语义。WebUI 照片页：维度/方向切换、快捷范围联动起止日期（至=含当天）、每页张数动态（默认按视口宽度估算整行倍数，可选 12/24/48/96）。
 - 视频支持（feature/video-support）：默认 `allowed_extensions` 追加 mp4/mov/m4v/3gp/webm/mkv/avi；Worker 用零依赖 QuickTime(moov/mvhd) 解析取容器创建时间（映射 date_source=CreateDate，年份异常回退 file_mtime）；WebUI 照片页视频项以 `<video preload=metadata>` 首帧 + ▶ 角标展示、灯箱内 `<video controls>` 播放（文件端点已支持 Range/206）；服务端不为视频生成缩略图（低性能设备考量）。浏览器对编码支持差异只影响网页播放，不影响上传/归档/同步。时间说明：QuickTime 创建时间按 **UTC 语义**存储（如 ffprobe 显示 `...Z`），系统按项目“上海墙钟”换算（+8）写入 `date_taken`（例：08:36Z → 16:36）；exiftool 不带时区原样显示易误读。极少数非标准写入器若把“本地墙钟”直接写入 mvhd，会造成整小时偏差（Known gap）。
-- HEIC/HEIF（可选支持）：新增 `photo_gateway/heif.py` 幂等注册 pillow-heif 解码器（worker/thumbnails 模块加载时调用）。安装 `pip install pillow-heif` 后：HEIC 可读取 EXIF（归档时间）、生成 JPEG 缩略图，各浏览器网页可见；未安装时静默降级（HEIC 按文件时间归档、网页显示“无法预览”占位并可下载原图）。依赖刻意**不写入 requirements**（避免不支持平台阻断安装）。WebUI 网格项加载失败统一显示“无法预览”占位卡而非隐藏整项；灯箱大图失败给出格式提示。
+- HEIC/HEIF：`pillow-heif` 已列为正式运行依赖，`photo_gateway/heif.py` 幂等注册解码器（worker/thumbnails 模块加载时调用）。HEIC 可读取 EXIF（归档时间）、生成 JPEG 缩略图并跨浏览器预览；单个文件解码失败仍回退文件时间/占位，注册失败写错误日志。WebUI 网格项加载失败显示“无法预览”占位卡，灯箱大图失败给出格式提示。
 - 运维修复（feature/video-support）：RsyncNas 探测/传输 ssh 命令显式 `-o ControlMaster=no`——避免受本机全局 ssh 配置的 ControlMaster/ControlPath 影响（曾因绑定 `~/.ssh/con-*` socket 失败而把在线 NAS 误判为离线）。
 - 同步页增强（2026-09）：新增 `GET /sync/gates`（实时门控：nas_alive/nas_ready/v1_idle/months_total/checked_at，2 次 SSH 探测，供页面手动检查）；「照片同步状态」页展示前置条件卡与最近同步记录时间、月份/批次两表前端排序+分页（overview batches 上限 8→50）；月份“－”状态=目录存在但从未建立同步状态（满足门控后首轮自动建立）。
 - 缩略图缓存一致性：原图文件缺失时（`/photos/{id}/thumbnail`、`/photos/{id}/file` 的 FILE_MISSING 分支）先删除该 asset 的孤儿缓存缩略图（thumbnails.drop_thumbnail）再返回 404——手工删除原图后缓存不再残留；DB photo_assets 记录仍保留（如需彻底删除资产（文件+DB+缓存）需另行提供删除流程，当前不在 V1 范围）。
@@ -129,6 +148,12 @@ sync:
   1. “逐文件失败重传”在 WebUI 内主要是回到上传会话重传（尚无 autofix 逐 file UI 的精修）；
   2. 浏览器 `<img>/<a>` 无法带 Authorization（启用认证时部分查看仅控制台提示用 curl/token）；
   3. EXIF 的 DateTimeOriginal/CreateDate/ModifyDate 读取做了一定简化(非严格三源区分)，worker date_source 可能为近似；
-  4. V2 真删除触发未在 WebUI 提供（CLI 人工安全入口已落地：`cleanup --apply --yes`，写 audit.log；WebUI 删除按钮仍可后续加）。真实 NAS(rsync over SSH) 已在局域网一台 NAS 上完成端到端验证（首次同步 / ABNORMAL 隔离 / Retry 恢复链路）；在其他 ARM/Linux 小主机上的实机部署演练尚未进行。
+  4. V2 真删除触发未在 WebUI 提供（CLI 人工安全入口已落地：`cleanup --apply --yes`，写 audit.log；历史月份 Cleanup 的 WebUI 按钮仍不提供；V1.4 已新增单张本地回收站）。真实 NAS(rsync over SSH) 已在局域网一台 NAS 上完成端到端验证（首次同步 / ABNORMAL 隔离 / Retry 恢复链路）；docker-host Docker 生产部署验收仍为 NOT_RUN。
 
 _详见 git history 的里程碑 commit 与代码 docstring。_
+
+## V1.4 本地回收站
+
+以 `docs/photo-gateway-v1.4-recycle-bin-spec.md` 为权威功能契约。新增 `photo_gateway/recycle.py`、`photo_gateway/recycle_api.py`。删除、恢复、后台超期清理操作必须取得 `BackgroundWorkers.archive_lock`，隔离目录必须在 `Photos` 外；部署时应确保同一文件系统下原子 rename 有效。重复上传会在 Worker SHA-256 判定后转入 `REVIEW_REQUIRED` 并等待人工决策。
+
+回归：`python -m pytest tests/test_recycle.py tests/test_missing_assets.py -q`；全量：`python -m pytest tests -q`。删除/清理不可用于生产环境的临时手工测试，必须使用合成数据和 FakeNas。

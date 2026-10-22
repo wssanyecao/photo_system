@@ -1,0 +1,80 @@
+version: 1
+
+server:
+  host: 0.0.0.0
+  port: 18080
+
+auth:
+  enabled: false
+  session_ttl_hours: 24
+
+devices:
+  - id: phone
+    name: 手机
+    enabled: true
+
+storage:
+  root: /data/photo-system/storage
+  incoming: incoming
+  processing: processing
+  failed: failed
+  archive: Photos
+  database: database/photo-gateway.db
+  logs: logs
+
+upload:
+  concurrency: 1
+  precheck:
+    batch_size: 5
+
+processing:
+  worker_count: 1
+
+metadata:
+  date_priority: [DateTimeOriginal, CreateDate, ModifyDate, file_mtime]
+
+disk:
+  warning_percent: 75
+  critical_percent: 85
+  stop_percent: 90
+
+logging:
+  level: INFO
+  rotation:
+    max_size_mb: 50
+    retention_days: 30
+
+webui:
+  photos_page_size: 24
+
+thumbnails:
+  cache_dir: thumbnails
+  cleanup:
+    enabled: true
+    max_age_days: 90
+
+# 首次校验先保持 false；NAS key/known_hosts/路由验证后再启用。
+sync:
+  enabled: false
+  nas: {}
+  # enabled=true 前把上一行替换为下列内容；路径是容器内路径。
+  # nas:
+  #   host: nas.example.internal
+  #   ssh_port: 22
+  #   ssh_user: photo-sync
+  #   ssh_key: /home/photo-gateway/.ssh/nas_key
+  #   known_hosts: /home/photo-gateway/.ssh/known_hosts
+  #   target_root: /photo/Photos
+  worker:
+    cycle_interval_seconds: 300
+  failure:
+    threshold: 3
+  cleanup:
+    enabled: true
+    synced_retention_days: 90
+
+# 仅运行主机本地回收站（不影响 NAS）
+recycle_bin:
+  enabled: true
+  retention_days: 30
+  auto_purge: true

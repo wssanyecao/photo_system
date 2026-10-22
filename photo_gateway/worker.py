@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import os
 import shutil
@@ -22,8 +23,10 @@ from pathlib import Path
 
 from .config import V1Config
 
+_FALLBACK_LOG = logging.getLogger("photo_gateway.worker")
+
 from . import heif as _heif_support
-_heif_support.register()        # 可选：HEIC/HEIF 解码（安装 pillow-heif 后生效）
+_heif_support.register()        # HEIC/HEIF 解码；失败时模块记录并保留单文件降级
 SH = timezone(timedelta(hours=8))
 
 
@@ -412,9 +415,27 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     sha = compute_sha256(src)
     existing = conn.execute(
         "SELECT id, date_taken, date_source, current_filename, archive_path,"
-        " exif_json, file_missing_at"
+        " exif_json, file_missing_at, lifecycle_state"
         " FROM photo_assets WHERE sha256=?", (sha,)
     ).fetchone()
+
+    if existing is not None and existing["lifecycle_state"] in ("TRASHED", "PURGED"):
+        # 独立隔离相同文件名的不同上传，等待人工确认；不进入 NAS 同步目录。
+        from .recycle import stage_deleted_review
+        try:
+            stage_deleted_review(cfg, item_id, original_filename, src)
+        except OSError as exc:
+            _mark_item_failed(conn, item_id, "REVIEW_STAGE_FAILED", str(exc))
+            return {"item_id": item_id, "status": "FAILED", "error_message": str(exc)}
+        with conn:
+            conn.execute(
+                "UPDATE upload_items SET status='REVIEW_REQUIRED', asset_id=?, updated_at=? WHERE id=?",
+                (existing["id"], _now_str(), item_id),
+            )
+            _append_event(conn, item_id, "DELETED_REVIEW_REQUIRED",
+                          "same content was previously deleted; waiting for user choice")
+        return {"item_id": item_id, "status": "REVIEW_REQUIRED",
+                "asset_id": existing["id"]}
 
     if existing is not None:
         repaired = False
@@ -438,8 +459,11 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
             _append_event(conn, item_id, "PROCESSED", event_msg)
         try:
             src.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            _FALLBACK_LOG.warning(
+                "duplicate source cleanup failed item_id=%s path=%s: %s",
+                item_id, src, exc, exc_info=True,
+            )
         return {"item_id": item_id, "status": "DUPLICATE", "asset_id": existing["id"],
                 "repaired": repaired, "archive_path": existing["archive_path"]}
 
@@ -514,8 +538,6 @@ def _resolve_archive_dir(cfg: V1Config, img: Path):
         val = None
         if source in ("DateTimeOriginal", "CreateDate", "ModifyDate"):
             val = _exif_date_string(img)  # 尽力读取(不严格区分三类源)，供 priority 落位
-            if source != "DateTimeOriginal":  # 其余 exif 源未解析则也到此 source
-                pass
         if val is None and source == "file_mtime":
             mtime = datetime.fromtimestamp(img.stat().st_mtime, SH)
             val = mtime.isoformat(sep="T")
@@ -546,8 +568,9 @@ def _append_event(conn, item_id: int, event_type: str, message: str) -> None:
             " VALUES (?,?,?,?)",
             (item_id, event_type, message, _now_str()),
         )
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as exc:
+        _FALLBACK_LOG.error("failed to append photo event item_id=%s event=%s: %s",
+                            item_id, event_type, exc, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +645,7 @@ def mark_missing_assets(conn, archive_root: Path) -> int:
     （Cleanup/请求 404）已即时标记，无需常跑。返回新标记数。
     """
     rows = conn.execute(
-        "SELECT id, archive_path FROM photo_assets WHERE file_missing_at IS NULL"
+        "SELECT id, archive_path FROM photo_assets WHERE file_missing_at IS NULL AND lifecycle_state='ACTIVE'"
     ).fetchall()
     now = _now_str()
     missing_ids = []

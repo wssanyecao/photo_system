@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from photo_gateway.db import TABLES, connect, init_db, migrate
+from photo_gateway.db import DbError, TABLES, backup_database, connect, init_db, migrate
 
 
 def _user_tables(conn):
@@ -72,4 +72,22 @@ def test_upload_sessions_layout(tmp_path):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(upload_sessions)")}
     assert {"id", "source_device", "client_ip", "total_files", "uploaded_files",
             "skipped_files", "duplicate_files", "failed_files", "status"} <= cols
+    conn.close()
+
+
+def test_online_backup_is_consistent_and_refuses_overwrite(tmp_path):
+    conn = init_db(tmp_path / "source.db")
+    now = "2026-09-18 10:00:00"
+    conn.execute("INSERT INTO devices(id,name,enabled,created_at,updated_at)"
+                 " VALUES ('cam','Camera',1,?,?)", (now, now))
+    conn.commit()
+    target = backup_database(conn, tmp_path / "backups" / "snapshot.db")
+    restored = connect(target)
+    try:
+        assert restored.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert restored.execute("SELECT name FROM devices WHERE id='cam'").fetchone()[0] == "Camera"
+    finally:
+        restored.close()
+    with pytest.raises(DbError, match="拒绝覆盖"):
+        backup_database(conn, target)
     conn.close()

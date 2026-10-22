@@ -4,6 +4,7 @@
     python -m photo_gateway --config path --check          # 校验配置 (spec §53)
     python -m photo_gateway hash-password                 # 生成 scrypt password_hash
     python -m photo_gateway serve --config path           # 启动 HTTP 服务(V1 Phase1 后)
+    python -m photo_gateway db-backup --config path       # 在线生成一致 SQLite 备份
     python -m photo_gateway maintenance --config path     # 手动执行一轮过期文件清理(tmp/缩略图)
     python -m photo_gateway cleanup --config path         # V2 Cleanup 预览/安全删除(默认 dry-run)
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import __version__
@@ -48,6 +50,7 @@ def _cmd_serve(cfg_path: Path) -> int:
     import uvicorn
 
     cfg, dirs, logman, conn = boot(cfg_path)
+    conn.close()  # schema 初始化完成；运行期各请求/worker 使用独立连接
     db_path = cfg.storage.resolved_database()
     app = create_app(cfg, db_path=db_path, logman=logman,
                      dirs={"incoming": cfg.storage.resolved_incoming(),
@@ -56,6 +59,26 @@ def _cmd_serve(cfg_path: Path) -> int:
                               event="server_start", module="cli")
     print(f"[serve] http://{cfg.server.host}:{cfg.server.port} (auth={'on' if cfg.auth.enabled else 'off'})")
     uvicorn.run(app, host=cfg.server.host, port=cfg.server.port, log_level="warning")
+    return 0
+
+
+def _cmd_db_backup(cfg_path: Path, output: Path | None = None) -> int:
+    """在线生成一致 SQLite 备份；不要求停止 serve。"""
+    from .http import boot
+    from .db import backup_database
+
+    cfg, _, logman, conn = boot(cfg_path)
+    if output is None:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output = Path(cfg.storage.root) / "backups" / f"photo-gateway-{stamp}.db"
+    try:
+        target = backup_database(conn, output)
+    finally:
+        conn.close()
+    logman.audit().info(
+        "database backup completed", event="database_backup", filename=str(target)
+    )
+    print(f"[db-backup] {target}")
     return 0
 
 
@@ -175,6 +198,10 @@ def main(argv: list[str] | None = None) -> int:
     p_align = sub.add_parser("align-mtime", help="存量资产磁盘 mtime 对齐到 date_taken")
     p_align.add_argument("--config", type=Path, default=Path("/etc/photo-gateway/config.yaml"))
 
+    p_backup = sub.add_parser("db-backup", help="生成一致性 SQLite 备份")
+    p_backup.add_argument("--config", type=Path, default=Path("/etc/photo-gateway/config.yaml"))
+    p_backup.add_argument("--output", type=Path, help="备份目标（默认 storage.root/backups/时间戳.db）")
+
     args = parser.parse_args(argv)
     default = Path("/etc/photo-gateway/config.yaml")
     if args.command == "check":
@@ -206,6 +233,9 @@ def main(argv: list[str] | None = None) -> int:
         conn.close()
         print(f"[align-mtime] aligned {n}")
         return 0
+    if args.command == "db-backup":
+        return _cmd_db_backup(getattr(args, "config", None) or default,
+                              output=getattr(args, "output", None))
     parser.print_help()
     return 0
 

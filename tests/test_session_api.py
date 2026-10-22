@@ -183,6 +183,8 @@ def test_webui_readonly_photos_and_system(tmp_path):
     sy = c.get("/api/v1/system/status")
     assert sy.status_code == 200
     assert sy.json()["data"]["counts"] is not None
+    assert sy.json()["data"]["worker"] == {
+        "status": "not_started", "mode": "threaded-v1-v2", "threads": {}}
     assert sy.json()["success"] is True
     ss = c.get("/api/v1/sync/status")          # V2 未配置 → enabled:False
     assert ss.status_code == 200
@@ -192,8 +194,8 @@ def test_webui_readonly_photos_and_system(tmp_path):
     assert ov.json()["data"]["enabled"] is False
 
 
-def test_lifecycle_with_background_ticker(tmp_path):
-    """serve 形态：提 worker(dir/2s ticker)，上传结束自动归档并收尾。"""
+def test_lifecycle_with_background_threads(tmp_path):
+    """serve 形态：V1 后台线程处理上传，并在生命周期结束时收尾。"""
     import time as _t
     conn = init_db(tmp_path / "db" / "pg.db")
     conn.execute("INSERT INTO devices(id,name,enabled,created_at,updated_at) VALUES ('xiaomi14','x',1,'t','t')")
@@ -202,13 +204,16 @@ def test_lifecycle_with_background_ticker(tmp_path):
     (tmp_path / "Photos").mkdir(exist_ok=True)
     app = create_app(_cfg_yaml(tmp_path), db_path=tmp_path / "db" / "pg.db",
                      dirs={"incoming": _in, "archive": tmp_path / "Photos"})
-    with TestClient(app) as c:  # with 让 lifespan(worker ticker) 运行
+    with TestClient(app) as c:  # with 让 lifespan/background worker 运行
+        worker = c.get("/api/v1/system/status").json()["data"]["worker"]
+        assert worker["status"] == "running"
+        assert worker["threads"] == {"photo-v1-worker": True}
         sid = c.post("/api/v1/upload-sessions", json={"source_device": "xiaomi14"}).json()["data"]["session"]["id"]
         body = {"items": [{"client_item_id": "w1", "filename": "pic.jpg", "file_size": 8}]}
         item = c.post(f"/api/v1/upload-sessions/{sid}/items/precheck", json=body).json()["data"]["items"][0]
         up = c.post(f"/api/v1/upload-items/{item['item_id']}/file", files={"file": ("pic.jpg", b"12345678")})
         assert up.status_code == 200
-        # 等待 ticker(<=2s/次)处理归档
+        # 等待 V1 线程（<=2s/轮）处理归档
         status = "UPLOAD"
         for _ in range(12):
             _t.sleep(0.6)
@@ -219,3 +224,20 @@ def test_lifecycle_with_background_ticker(tmp_path):
         assert status in ("COMPLETED", "PARTIAL")
         ph = c.get("/api/v1/photos?limit=5").json()["data"]["photos"]
         assert len(ph) >= 1  # 归档产物可见
+
+
+def test_system_status_exposes_archive_filesystem_capacity(tmp_path, monkeypatch):
+    from collections import namedtuple
+    import shutil
+
+    (tmp_path / "Photos").mkdir()
+    usage = namedtuple("usage", "total used free")(107374182400, 64424509440, 42949672960)
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: usage)
+    client, _, _ = _client(tmp_path)
+    response = client.get("/api/v1/system/status")
+    assert response.status_code == 200
+    storage = response.json()["data"]["storage"]
+    assert storage["total_bytes"] == 107374182400
+    assert storage["used_bytes"] == 64424509440
+    assert storage["free_bytes"] == 42949672960
+    assert storage["used_percent"] == 60.0

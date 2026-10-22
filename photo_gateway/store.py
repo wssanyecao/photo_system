@@ -7,7 +7,7 @@
 - precheck_status(§29)：NOT_CHECKED/NO_MATCH/POSSIBLE_DUPLICATE
 - 批量 Precheck 幂等 (session_id, client_item_id)（§20/22 API + §22 db 唯一键）
 - Precheck 命中 = 曾出现相同 (device,filename,size) 且结果 COMPLETED/DUPLICATE（§33/§34）→ 不命中 FAILED
-- 文件在 Precheck 阶段仅存元数据，不进 R5S（§28）；只有命中用户确认(→UPLOADING)或 NO_MATCH 后进入上传。
+- 文件在 Precheck 阶段仅存元数据，不进 legacy-host（§28）；只有命中用户确认(→UPLOADING)或 NO_MATCH 后进入上传。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ SESSION_STATUSES = {
 }
 ITEM_STATUSES = {
     "PRECHECK", "UPLOADING", "UPLOADED", "PROCESSING",
-    "COMPLETED", "DUPLICATE", "FAILED",
+    "COMPLETED", "DUPLICATE", "FAILED", "REVIEW_REQUIRED",
 }
 PRECHECK_STATUSES = {"NOT_CHECKED", "NO_MATCH", "POSSIBLE_DUPLICATE"}
 # 命中过去"成功/重复"，不命中 FAILED
@@ -143,7 +143,7 @@ def finalize_session(conn, session_id: str) -> None:
     _recount(conn, session_id)
     busy = conn.execute(
         "SELECT COUNT(*) FROM upload_items WHERE session_id=? AND"
-        " status IN ('UPLOADING','UPLOADED','PROCESSING')", (session_id,)
+        " status IN ('UPLOADING','UPLOADED','PROCESSING','REVIEW_REQUIRED')", (session_id,)
     ).fetchone()[0]
     if busy:
         return
@@ -217,6 +217,13 @@ def bulk_precheck(conn, session_id: str, source_device: str,
             "precheck_status": precheck,
             "status": "PRECHECK",  # api-spec §20/§21：Precheck 阶段 items 状态
             "upload_required": precheck == "NO_MATCH",
+            "possibly_deleted": conn.execute(
+                "SELECT EXISTS(SELECT 1 FROM upload_items ui"
+                " JOIN photo_assets pa ON pa.id=ui.asset_id"
+                " WHERE ui.original_filename=? AND ui.file_size=?"
+                " AND pa.lifecycle_state IN ('TRASHED','PURGED'))",
+                (filename, file_size),
+            ).fetchone()[0] == 1,
         })
     conn.execute(
         "UPDATE upload_sessions SET status='UPLOADING' WHERE id=? AND status='CREATED'",

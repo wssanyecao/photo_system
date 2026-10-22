@@ -78,3 +78,84 @@ def test_date_filter(tmp_path):
         assert feb["total"] == 1 and feb["photos"][0]["current_filename"] == "2.jpg"
         none = c.get("/api/v1/photos?date_from=2025-01-01&date_to=2025-12-31").json()["data"]
         assert none["total"] == 0
+
+
+def test_photo_detail_and_documented_filters(tmp_path):
+    _seed_two(tmp_path)
+    conn = init_db(tmp_path / "db.sqlite")
+    now = "2026-09-01 10:00:00"
+    conn.execute(
+        "INSERT INTO devices(id,name,enabled,created_at,updated_at) VALUES ('d','Device',1,?,?)",
+        (now, now),
+    )
+    conn.execute(
+        "UPDATE photo_assets SET exif_json=? WHERE current_filename='1.jpg'",
+        ('{"Make":"Xiaomi","ImageWidth":4032,"ImageLength":3024}',),
+    )
+    conn.execute(
+        "INSERT INTO upload_sessions(id,source_device,status,created_at) VALUES (?,?,?,?)",
+        ("sess-detail", "d", "COMPLETED", now),
+    )
+    asset_id = conn.execute("SELECT id FROM photo_assets WHERE current_filename='1.jpg'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO upload_items(session_id,source_device,client_item_id,original_filename,file_size,"
+        "status,asset_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("sess-detail", "d", "asset-1", "1.jpg", 1, "COMPLETED", asset_id, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+    with TestClient(_app(tmp_path)) as c:
+        detail = c.get(f"/api/v1/photos/{asset_id}")
+        assert detail.status_code == 200
+        photo = detail.json()["data"]["photo"]
+        assert photo["source_device"] == "d"
+        assert photo["exif"]["ImageWidth"] == 4032
+        assert photo["archive_path"].endswith("a.jpg")
+        by_device = c.get("/api/v1/photos?source_device=d").json()["data"]
+        assert by_device["total"] == 1
+        by_type = c.get("/api/v1/photos?mime_type=image/jpeg").json()["data"]
+        assert by_type["total"] == 2
+
+
+def test_recent_upload_sessions_is_read_only_and_bounded(tmp_path):
+    _seed_two(tmp_path)
+    db_path = tmp_path / "db.sqlite"
+    conn = init_db(db_path)
+    now = "2026-09-01 10:00:00"
+    conn.execute(
+        "INSERT INTO devices(id,name,enabled,created_at,updated_at) VALUES ('d','Device',1,?,?)",
+        (now, now),
+    )
+    for sid, created, status in [
+        ("older", "2026-08-31 10:00:00", "COMPLETED"),
+        ("newer", "2026-09-01 10:00:00", "FAILED"),
+    ]:
+        conn.execute(
+            "INSERT INTO upload_sessions(id,source_device,client_ip,status,created_at,total_files,"
+            "uploaded_files,failed_files) VALUES (?,?,?,?,?,?,?,?)",
+            (sid, "d", "192.0.2.4", status, created, 5, 3, 2),
+        )
+    conn.commit()
+    conn.close()
+    before = init_db(db_path)
+    before_rows = [tuple(r) for r in before.execute(
+        "SELECT id,status,total_files,uploaded_files,failed_files FROM upload_sessions ORDER BY id"
+    ).fetchall()]
+    before.close()
+
+    with TestClient(_app(tmp_path)) as c:
+        response = c.get("/api/v1/upload-sessions/recent?limit=1")
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["sessions"][0]["id"] == "newer"
+        assert data["sessions"][0]["failed_files"] == 2
+        assert "client_ip" not in data["sessions"][0]
+        assert c.get("/api/v1/upload-sessions/recent?limit=51").status_code == 400
+
+    after = init_db(db_path)
+    after_rows = [tuple(r) for r in after.execute(
+        "SELECT id,status,total_files,uploaded_files,failed_files FROM upload_sessions ORDER BY id"
+    ).fetchall()]
+    after.close()
+    assert after_rows == before_rows

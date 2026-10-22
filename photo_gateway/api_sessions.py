@@ -13,6 +13,7 @@ DB 依赖：app.state.pg['db_path']；未配置(纯管理模式)→ 503。
 from __future__ import annotations
 
 import sqlite3
+import logging
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Header, Request, UploadFile
@@ -22,6 +23,7 @@ from . import store as st
 from .security import AuthError, PgApiError, SessionStore, get_bearer_token
 
 router = APIRouter(prefix="/api/v1", tags=["session"])
+_FALLBACK_LOG = logging.getLogger("photo_gateway.api_sessions")
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,27 @@ def create_session(body: CreateSessionBody, req: Request, authorization: str = H
         conn.close()
 
 
+@router.get("/upload-sessions/recent")
+def recent_sessions(req: Request, authorization: str = Header(default=None), limit: int = 8):
+    """最近上传会话的只读摘要；不公开客户端地址或服务器路径。"""
+    _guard(req)
+    if limit < 1 or limit > 50:
+        raise PgApiError("BAD_PARAM", "limit 1..50", 400)
+    conn = _db(req)
+    try:
+        rows = conn.execute(
+            "SELECT id, source_device, status, created_at, started_at, completed_at,"
+            " total_files, uploaded_files, skipped_files, duplicate_files, failed_files"
+            " FROM upload_sessions ORDER BY created_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return {"success": True, "data": {
+            "limit": limit, "sessions": [dict(row) for row in rows],
+        }}
+    finally:
+        conn.close()
+
+
 @router.get("/upload-sessions/{session_id}")
 def get_session(session_id: str, req: Request, authorization: str = Header(default=None)):
     _guard(req)
@@ -157,6 +180,26 @@ def precheck_batch(session_id: str, body: BulkPrecheckBody, req: Request,
             it["original_filename"] = it.pop("filename")
         results = st.bulk_precheck(conn, session_id, device, items)
         return {"success": True, "data": {"items": results}}
+    finally:
+        conn.close()
+
+
+@router.get("/upload-sessions/{session_id}/deleted-reviews")
+def deleted_reviews(session_id: str, req: Request):
+    """返回内容 SHA 命中用户删除资产而尚待人工决策的上传项。"""
+    _guard(req)
+    conn = _db(req)
+    try:
+        if st.get_session(conn, session_id) is None:
+            raise PgApiError("SESSION_NOT_FOUND", "session not found", 404)
+        rows = conn.execute(
+            "SELECT ui.id AS item_id, ui.original_filename, ui.asset_id,"
+            " pa.lifecycle_state FROM upload_items ui"
+            " JOIN photo_assets pa ON pa.id=ui.asset_id"
+            " WHERE ui.session_id=? AND ui.status='REVIEW_REQUIRED'"
+            " ORDER BY ui.id", (session_id,),
+        ).fetchall()
+        return {"success": True, "data": {"items": [dict(r) for r in rows]}}
     finally:
         conn.close()
 
@@ -286,7 +329,8 @@ def _row_to_public(row) -> dict:
 def photo_list(req: Request, authorization: str = Header(default=None),
                offset: int = 0, limit: int = 0,
                date_from: str = "", date_to: str = "",
-               field: str = "", order: str = "desc"):
+               field: str = "", order: str = "desc",
+               source_device: str = "", mime_type: str = ""):
     """照片列表（分页 + 时间范围过滤 + 维度/方向）。
 
     limit=0 → 使用配置 webui.photos_page_size(默认12)；offset 分页。
@@ -310,7 +354,7 @@ def photo_list(req: Request, authorization: str = Header(default=None),
     key = "date_taken" if field == "taken" else ("created_at" if field == "uploaded" else "id")
     conn = _db(req)
     try:
-        where = ["file_missing_at IS NULL"]   # 本地已删(Cleanup 等)资产不展示（V1.3）
+        where = ["file_missing_at IS NULL", "lifecycle_state = 'ACTIVE'"]   # 本地已删(Cleanup 等)资产不展示（V1.3）
         args: list = []
         if date_from:
             where.append(f"{fcol} >= ?")
@@ -318,6 +362,13 @@ def photo_list(req: Request, authorization: str = Header(default=None),
         if date_to:
             where.append(f"{fcol} < ?")
             args.append(date_to)
+        if source_device:
+            where.append("EXISTS (SELECT 1 FROM upload_items ui WHERE ui.asset_id=photo_assets.id"
+                         " AND ui.source_device=?)")
+            args.append(source_device)
+        if mime_type:
+            where.append("mime_type=?")
+            args.append(mime_type)
         cond = " WHERE " + " AND ".join(where)
         d = "DESC" if order == "desc" else "ASC"
         rows = conn.execute(
@@ -337,6 +388,8 @@ def photo_list(req: Request, authorization: str = Header(default=None),
                 from .preview_sign import make_preview_token
                 d["thumbnail_url"] = (f"/api/v1/photos/{r['id']}/thumbnail"
                                       f"?preview={make_preview_token(secret, r['id'])}")
+                d["preview_url"] = (f"/api/v1/photos/{r['id']}/preview"
+                                    f"?preview={make_preview_token(secret, r['id'])}")
                 d["file_url"] = (f"/api/v1/photos/{r['id']}/file"
                                  f"?preview={make_preview_token(secret, r['id'])}")
             photos.append(d)
@@ -348,6 +401,41 @@ def photo_list(req: Request, authorization: str = Header(default=None),
         conn.close()
 
 
+@router.get("/photos/{asset_id}")
+def photo_detail(asset_id: int, req: Request, authorization: str = Header(default=None)):
+    """返回单张照片详情及最近关联的来源设备。"""
+    _guard(req)
+    conn = _db(req)
+    try:
+        row = conn.execute(
+            "SELECT id, sha256, original_filename, current_filename, file_size, mime_type,"
+            " date_taken, date_source, exif_json, archive_path, created_at, updated_at,"
+            " (SELECT ui.source_device FROM upload_items ui WHERE ui.asset_id=photo_assets.id"
+            " ORDER BY COALESCE(ui.completed_at, ui.created_at) DESC, ui.id DESC LIMIT 1)"
+            " AS source_device"
+            " FROM photo_assets WHERE id=? AND lifecycle_state='ACTIVE'",
+            (asset_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise PgApiError("ASSET_NOT_FOUND", "photo asset not found", 404)
+    photo = dict(row)
+    raw_exif = photo.pop("exif_json")
+    if raw_exif:
+        import json
+        try:
+            photo["exif"] = json.loads(raw_exif)
+        except json.JSONDecodeError as exc:
+            _FALLBACK_LOG.warning("invalid EXIF JSON for photo detail",
+                                  extra={"event": "photo_exif_invalid", "asset_id": asset_id,
+                                         "error": str(exc)})
+            photo["exif"] = None
+    else:
+        photo["exif"] = None
+    return {"success": True, "data": {"photo": photo}}
+
+
 @router.get("/photos/{asset_id}/file")
 def photo_file(asset_id: int, req: Request, authorization: str = Header(default=None),
                inline: bool = False):
@@ -356,7 +444,7 @@ def photo_file(asset_id: int, req: Request, authorization: str = Header(default=
     conn = _db(req)
     try:
         row = conn.execute(
-            "SELECT archive_path, current_filename, mime_type FROM photo_assets WHERE id=?",
+            "SELECT archive_path, current_filename, mime_type FROM photo_assets WHERE id=? AND lifecycle_state='ACTIVE'",
             (asset_id,),
         ).fetchone()
     finally:
@@ -383,7 +471,7 @@ def photo_thumbnail(asset_id: int, req: Request, authorization: str = Header(def
     conn = _db(req)
     try:
         row = conn.execute(
-            "SELECT archive_path, current_filename, mime_type FROM photo_assets WHERE id=?",
+            "SELECT archive_path, current_filename, mime_type FROM photo_assets WHERE id=? AND lifecycle_state='ACTIVE'",
             (asset_id,),
         ).fetchone()
     finally:
@@ -407,13 +495,43 @@ def photo_thumbnail(asset_id: int, req: Request, authorization: str = Header(def
     return FileResponse(full, media_type=media, filename=row["current_filename"])
 
 
+@router.get("/photos/{asset_id}/preview")
+def photo_preview(asset_id: int, req: Request, authorization: str = Header(default=None)):
+    """浏览器兼容的大图 JPEG 预览；转换失败时回退原文件。"""
+    _require_photo_access(req, asset_id)
+    conn = _db(req)
+    try:
+        row = conn.execute(
+            "SELECT archive_path, current_filename, mime_type FROM photo_assets WHERE id=? AND lifecycle_state='ACTIVE'",
+            (asset_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise PgApiError("ASSET_NOT_FOUND", "photo asset not found", 404)
+    cfg = _state(req)["cfg"]
+    full = _resolve_archive(cfg, row["archive_path"])
+    if not full.exists():
+        _drop_orphan_thumbnail(cfg, asset_id)
+        _mark_asset_missing(req, asset_id)
+        raise PgApiError("FILE_MISSING", "photo file missing", 404)
+    from fastapi.responses import FileResponse
+    from .thumbnails import ensure_preview
+    preview = ensure_preview(cfg.resolved_thumbnails(), asset_id, full)
+    if preview is not None:
+        return FileResponse(preview, media_type="image/jpeg")
+    media = row["mime_type"] or guess_mime_type(row["current_filename"])
+    return FileResponse(full, media_type=media)
+
+
 @router.get("/system/status")
 def system_status(req: Request, authorization: str = Header(default=None)):
     _guard(req)
     cfg = _state(req)["cfg"]
     try:
         root = cfg.storage.resolved_archive()
-    except Exception:
+    except Exception as exc:
+        _FALLBACK_LOG.error("failed to resolve storage status root: %s", exc, exc_info=True)
         root = None
     storage = None
     if root is not None and root.exists():
@@ -440,9 +558,14 @@ def system_status(req: Request, authorization: str = Header(default=None)):
     finally:
         if conn:
             conn.close()
+    workers = _state(req).get("workers")
+    worker_status = (
+        workers.status() if workers is not None
+        else {"status": "not_started", "mode": "threaded-v1-v2", "threads": {}}
+    )
     return {"success": True, "data": {
         "storage": storage, "counts": counts,
-        "worker": {"status": "running", "mode": "background-ticker"},
+        "worker": worker_status,
         "allowed_extensions": list(cfg.upload.allowed_extensions),
     }}
 
@@ -464,8 +587,9 @@ def _drop_orphan_thumbnail(cfg, asset_id: int) -> None:
     try:
         from .thumbnails import drop_thumbnail
         drop_thumbnail(cfg.resolved_thumbnails(), asset_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        _FALLBACK_LOG.warning("failed to remove orphan thumbnail asset_id=%s: %s",
+                              asset_id, exc, exc_info=True)
 
 
 def _mark_asset_missing(req, asset_id: int) -> None:
@@ -481,14 +605,15 @@ def _mark_asset_missing(req, asset_id: int) -> None:
         try:
             conn.execute(
                 "UPDATE photo_assets SET file_missing_at=?, updated_at=?"
-                " WHERE id=? AND file_missing_at IS NULL",
+                " WHERE id=? AND file_missing_at IS NULL AND lifecycle_state='ACTIVE'",
                 (now, now, asset_id),
             )
             conn.commit()
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        _FALLBACK_LOG.error("failed to mark missing asset asset_id=%s: %s",
+                            asset_id, exc, exc_info=True)
 
 
 def guess_mime_type(name: str) -> str:
@@ -545,7 +670,7 @@ def sync_gates(req: Request, authorization: str = Header(default=None)):
         return {"success": True, "data": {"enabled": False}}
     from datetime import datetime, timedelta, timezone as _tz
     checked = datetime.now(_tz(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    archive = cfg.storage.resolved_archive()
+    archive = cfg.resolved_sync_source()
     conn = _db(req)
     try:
         from . import v2 as dv
@@ -560,7 +685,8 @@ def sync_gates(req: Request, authorization: str = Header(default=None)):
         nas = RsyncNas(sync, archive)
         alive = bool(nas.alive())
         ready = bool(nas.ready()) if alive else False
-    except Exception:
+    except Exception as exc:
+        _FALLBACK_LOG.error("sync gate probe failed: %s", exc, exc_info=True)
         alive = ready = False
     return {"success": True, "data": {
         "enabled": True, "checked_at": checked,
@@ -582,7 +708,7 @@ def sync_overview(req: Request, authorization: str = Header(default=None)):
     try:
         from . import v2 as dv
         from .v2cycle import cleanup_candidates
-        archive = cfg.storage.resolved_archive()
+        archive = cfg.resolved_sync_source()
         cands = cleanup_candidates(conn, archive, retention_days=sync.cleanup.synced_retention_days)
         elig = {c["month"]: c for c in cands}
         months = []

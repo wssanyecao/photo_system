@@ -164,6 +164,24 @@ def test_overview_matches_yyyymm_and_state(tmp_path):
         assert m["latest_success_at"] is not None
 
 
+def test_overview_honors_sync_source_root(tmp_path):
+    from fastapi.testclient import TestClient
+    from photo_gateway.http import create_app
+
+    external = tmp_path / "external-photos"
+    month = external / "2026" / "202609"
+    month.mkdir(parents=True)
+    (month / "external.jpg").write_bytes(b"x")
+    conn = init_db(tmp_path / "db.sqlite")
+    conn.close()
+    cfg = _cfg_yaml(tmp_path, enabled=True,
+                    extra_sync={"source": {"root": str(external)}})
+    app = create_app(cfg, db_path=tmp_path / "db.sqlite")
+    with TestClient(app) as c:
+        months = c.get("/api/v1/sync/overview").json()["data"]["months"]
+        assert [m["month"] for m in months] == ["202609"]
+
+
 def test_sync_gates_endpoint(tmp_path):
     """GET /sync/gates：disabled → enabled:False；enabled → 结构含门控字段（host 不可达时 alive=False 不抛）。"""
     from fastapi.testclient import TestClient

@@ -84,11 +84,16 @@ label{font-size:13px;color:var(--txt);display:inline-flex;gap:6px;align-items:ce
 .pickmeta .dim{word-break:break-all}
 .pickmeta .pm-acts{display:inline-flex;gap:8px;align-items:center}
 #pickNote{font-size:12px}
-#pickListWrap{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;margin:4px 0 2px}
+#pickListWrap{max-height:min(410px,52vh);overflow:auto;border:1px solid var(--line);border-radius:12px;margin:8px 0 2px}
 #pickList{list-style:none;margin:0;padding:0}
-#pickList li{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line)}
+#pickList li{display:grid;grid-template-columns:144px minmax(0,1fr) 76px 78px 28px;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line)}
 #pickList li:last-child{border-bottom:0}
-#pickList li:hover{background:#f8fafc}
+#pickList li:hover{background:#f8f8f4}
+.pick-head{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:144px minmax(0,1fr) 76px 78px 28px;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);background:#efeee8;color:var(--mut);font-size:11px;font-weight:600}
+.pick-preview{width:144px;height:72px;border-radius:8px;background:#eeede7;display:grid;place-items:center;overflow:hidden;color:var(--mut)}
+.pick-preview img,.pick-preview video{width:100%;height:100%;object-fit:contain;display:block}.pick-placeholder{font-size:10px;text-align:center;line-height:1.4}.pick-placeholder b{display:block;font-size:10px;color:var(--brand);letter-spacing:.04em}
+.pk-status{font-size:11px;color:var(--mut);white-space:nowrap}.pk-status::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#a8aca5;margin-right:6px}
+.upload-flow{position:relative}.flow-list{display:grid;gap:0;position:relative}.flow-step{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;padding:5px 0 22px}.flow-step:not(:last-child)::after{content:"";position:absolute;left:16px;top:37px;bottom:0;border-left:1px dashed #c9cec5}.flow-no{width:32px;height:32px;border-radius:50%;background:#ebeee8;color:#657268;display:grid;place-items:center;font-size:13px;font-weight:700;z-index:1}.flow-step:first-child .flow-no{background:var(--brand);color:white}.flow-step b{font-size:13px;display:block;margin:3px 0 4px}.flow-step p{font-size:11px;line-height:1.6;color:var(--mut);margin:0}.flow-foot{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--mut)}
 .pk-file-ico{flex:none;min-width:44px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.3px;
              color:var(--brand-d);background:var(--brand-bg);border-radius:7px;padding:5px 6px}
 .pk-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -283,16 +288,12 @@ img.thm{max-width:80px;max-height:70px;border-radius:6px;margin:3px}
   nav a{padding:8px 9px;font-size:13px}
 }
 
-/* ---------- 说明页（原理 / 运维命令） ---------- */
+/* ---------- 说明页（原型流程图 / 运维命令） ---------- */
 .help-steps{display:grid;gap:0}
 .hs{display:grid;grid-template-columns:180px 1fr;gap:4px 16px;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.7}
 .hs:last-child{border-bottom:0}
 .hs b{color:var(--brand-d)}
 .hs code{font:12px ui-monospace,Menlo,monospace;background:#f1f5f9;border-radius:4px;padding:0 4px}
-table.ops td,table.ops th{font-size:12.5px;padding:8px 10px;vertical-align:top}
-table.ops code{font:11.5px ui-monospace,Menlo,monospace;background:#f1f5f9;border-radius:4px;padding:1px 5px;color:#0f172a;white-space:nowrap}
-tr.danger td{background:#fef2f2}
-tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
 .debug-log{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff}
 .debug-log summary{cursor:pointer;font-size:13px;color:var(--mut);font-weight:600}
 @media (max-width:640px){
@@ -324,11 +325,199 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
   #lbxImg{max-height:calc(96vh - 84px)}
   .lbx-bar{flex-wrap:wrap;font-size:12px}
 }
+
+/* ---------- Photo Gateway redesign: warm stone + pine palette ---------- */
+:root{
+  --brand:#365b4a;--brand-d:#294638;--brand-bg:#e8eee8;
+  --bg:#f4f3ef;--panel:#fbfaf7;--line:#e4e2da;--line2:#cfcdc3;
+  --txt:#222a24;--mut:#727a72;--ok:#3f785b;--warn:#a66c2d;--bad:#b74c43;
+  --radius:16px;--shadow:0 2px 10px rgba(40,48,40,.04);--shadow-lg:0 12px 32px rgba(35,47,38,.12);
+}
+body{background:linear-gradient(180deg,#f7f6f2,#f1f0eb);color:var(--txt)}
+header{grid-template-columns:1fr auto 1fr;padding:12px clamp(18px,3vw,44px);background:rgba(248,247,243,.88);border-color:#e3e1d9;box-shadow:none}
+header h1{display:flex;align-items:center;gap:11px;font-size:15px;letter-spacing:.01em}
+.brandmark{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:#e5ebe4;flex:none}
+.brandmark svg{display:block;width:28px;height:28px}
+.brandtext{display:grid;line-height:1.18;gap:4px}.brandtext small{font-size:10px;color:var(--mut);font-weight:500;letter-spacing:.08em}
+nav{gap:7px}nav a{color:#4f5c52;padding:8px 13px;border-radius:10px;font-size:13px}nav a:hover{background:#e9eee8;color:var(--brand-d)}nav a.active{background:transparent;color:var(--brand-d);font-weight:700;box-shadow:inset 0 -2px var(--brand)}
+main{width:min(100%,1640px);padding:26px clamp(18px,3vw,48px)}
+.panel{border-color:var(--line);border-radius:16px;padding:22px 24px;box-shadow:var(--shadow);background:rgba(251,250,247,.94)}
+.panel-title{background:none;border:0;margin:-4px 0 18px;padding:0;min-height:48px}.panel-title::before{display:none}.panel-title b{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.page-head{display:flex;align-items:center;gap:14px;margin:0 0 20px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.page-icon{width:46px;height:46px;flex:none;border-radius:14px;background:#e7ede6;color:var(--brand);display:grid;place-items:center}
+.page-copy{min-width:0}.page-copy h2{font-size:20px;line-height:1.25;letter-spacing:-.03em;margin:0;font-weight:650}.page-copy p{font-size:12px;color:var(--mut);margin:4px 0 0}.page-head>button{margin-left:auto}
+button{background:var(--brand);border-radius:10px}button:hover{background:var(--brand-d)}button.ghost{color:var(--brand);border-color:#9cae9f;background:transparent}button.ghost:hover{background:#edf1ec;color:var(--brand-d)}
+input[type=text],input[type=password],input[type=date],select{border-color:#d6d4ca;border-radius:10px;background:#fbfaf7}input[type=date],select{min-height:39px}
+.panel-title{border-bottom-color:var(--line)}.sub-head{background:linear-gradient(90deg,#f1f1eb,#f8f7f3);border-color:var(--line)}.sub-head::before{background:var(--brand)}
+#v-upload{display:grid;grid-template-columns:minmax(0,1fr) minmax(270px,330px);gap:16px;align-items:start}
+#v-upload.hidden{display:none !important}
+#v-upload>.panel{margin:0;min-width:0}#v-upload .upload-main{align-self:stretch;display:flex;flex-direction:column}#v-upload .upload-flow{grid-column:2;grid-row:1;position:relative;align-self:stretch;display:flex;flex-direction:column}#v-upload .upload-recent{grid-column:1/-1;grid-row:auto}
+#v-upload .upload-dropzone{position:relative;flex:0 0 auto;min-height:124px;margin-top:14px;flex-direction:column;justify-content:center;gap:8px;text-align:center;padding:16px 20px;border-color:#c9d2c9;background:radial-gradient(circle at 50% 30%,#f8faf6,#f0f3ee)}
+#v-upload .upload-dropzone:hover,#v-upload .upload-dropzone.drag{background:radial-gradient(circle at 50% 30%,#f3f7f1,#e8eee8)}
+#v-upload .upload-dropzone .pk-ico{width:52px;height:52px;border-radius:16px}.upload-dropzone .pk-ico svg{width:26px;height:26px}
+#v-upload .upload-dropzone .pk-txt{align-items:center;gap:6px}.upload-dropzone .pk-main{font-size:16px}.upload-dropzone .pk-sub{white-space:normal;line-height:1.6}
+#v-upload .upload-dropzone .pk-badge{position:absolute;top:12px;right:12px;margin:0}
+#v-upload .upload-main.has-files .upload-dropzone{flex:0 0 auto;min-height:0;flex-direction:row;justify-content:flex-start;text-align:left;padding:14px 16px}
+#v-upload .upload-main.has-files .upload-dropzone .pk-ico{width:38px;height:38px;border-radius:10px}
+#v-upload .upload-main.has-files .upload-dropzone .pk-txt{align-items:flex-start;padding-right:36px}
+#v-upload .upload-trust{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:auto;padding-top:15px}
+.upload-trust-item{display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:8px;padding:10px;border:1px solid #e6e8e0;border-radius:10px;background:rgba(255,255,255,.64);min-width:0}
+.upload-trust-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#e8eee8;color:var(--brand);font-size:14px;font-weight:700}
+.upload-trust-item b{display:block;font-size:11px;color:#46594b}.upload-trust-item small{display:block;margin-top:3px;color:var(--mut);font-size:10px;line-height:1.45}
+#v-upload .upload-main.has-files .upload-trust{display:none}
+#v-upload .flow-foot{margin-top:auto;padding-top:14px}
+.upload-selection{display:flex;flex-direction:column;flex:1;min-width:0}.upload-selection.hidden{display:none}
+.upload-selection>*{flex-shrink:0}.upload-stage{min-width:0;min-height:265px;padding:16px 0 0}.upload-stage-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 20px}.upload-stage-head b{font-size:18px}.upload-stage-head .dim{font-size:12px}#Ptx .tx-line{margin-top:24px;line-height:1.7}#Pdup .tblwrap{max-height:min(360px,46vh)}
+#v-upload .upload-main>*{flex-shrink:0}#v-upload .upload-main .page-head{margin-bottom:14px}
+#phase:empty{display:none}#phase{font-size:11px;margin-top:8px}
+#bPre{display:inline-flex;align-items:center;justify-content:center;gap:8px}#bPre svg{width:18px;height:18px;flex:none}
+#pickListWrap,.recent-wrap,.tblwrap,#phGrid,#photoInfo,.help-command-list,#log{overscroll-behavior:contain;scrollbar-gutter:stable}
+#pickListWrap::-webkit-scrollbar,.recent-wrap::-webkit-scrollbar{width:9px;height:9px}#pickListWrap::-webkit-scrollbar-thumb,.recent-wrap::-webkit-scrollbar-thumb{background:#b8c3b7;border:2px solid #f4f3ef;border-radius:9px}#pickListWrap::-webkit-scrollbar-track,.recent-wrap::-webkit-scrollbar-track{background:#f0f0e9}
+#pickListWrap{max-height:min(300px,40vh);min-height:0;flex:0 0 auto}.upload-recent .recent-wrap{max-height:min(360px,46vh)}
+#v-upload .upload-recent .page-head{margin-bottom:12px}.recent-list{max-height:min(360px,48vh);overflow:auto;padding-right:3px}
+.recent-table{min-width:680px}.recent-table td{vertical-align:middle}.recent-table .recent-counts{display:block;margin:0}.recent-table .recent-status{display:inline-block}
+.recent-item{border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:#fff;min-width:0}.recent-top{display:flex;justify-content:space-between;align-items:center;gap:8px}.recent-device{font-weight:650;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-time{font-size:11px;color:var(--mut);margin-top:4px}.recent-counts{display:flex;gap:9px;flex-wrap:wrap;margin-top:7px;font-size:11px;color:var(--mut)}.recent-status{font-size:10px;border-radius:20px;background:#e9eee8;color:var(--brand);padding:3px 8px;white-space:nowrap}.recent-status.failed,.recent-status.abnormal{background:#fae9e6;color:var(--bad)}.recent-status.running,.recent-status.processing{background:#f7eddb;color:var(--warn)}
+#v-photos{padding:20px 22px}.photo-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:0 0 16px;margin:0 0 16px;border-bottom:1px solid var(--line)}.photo-tools .seg{border-color:var(--line2);border-radius:10px;background:#f4f3ef}.photo-tools .seg .chip{padding:7px 10px;border-radius:8px}.photo-tools select{font-size:13px;min-width:120px}.photo-tools input[type=date]{font-size:13px;min-width:138px}.photo-tools .chip.active{background:#e2eae2;color:var(--brand-d);font-weight:650}.photo-tools .chip.active:hover{background:#d9e4da}
+.photo-workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:20px;align-items:start;min-width:0}
+.photo-gallery{min-width:0;display:flex;flex-direction:column;gap:12px}
+#phGrid{grid-template-columns:repeat(auto-fill,minmax(clamp(120px,14vw,190px),1fr));gap:12px;margin:0;min-width:0;max-height:min(65vh,760px);overflow-y:auto;align-content:start;padding:1px 4px 4px 1px}
+#phGrid a{border-radius:12px;background:#eeede8;border-color:transparent}.photo-tile.selected{outline:2px solid var(--brand);outline-offset:1px}
+#phGrid img,#phGrid a video{aspect-ratio:3/2;object-fit:cover;background:#ebe9e1}.empty-state{white-space:normal;background:#f8f7f3;border-color:#d6d4ca}
+#photoInfo{position:sticky;top:84px;border:1px solid var(--line);border-radius:14px;padding:14px;background:#fbfaf7;min-width:0;max-height:min(70vh,800px);overflow:auto}
+.photo-info-title{font-weight:650;font-size:15px;margin:0 0 10px}.photo-info-empty{color:var(--mut);font-size:12px;text-align:center;padding:24px}
+.info-list{display:grid;grid-template-columns:82px minmax(0,1fr);gap:9px 8px;font-size:12px}.info-list dt{color:var(--mut)}.info-list dd{margin:0;overflow-wrap:anywhere}.info-list .subtle{display:block;font-size:10px;color:var(--mut);margin-top:2px}.info-exif{margin-top:13px;border-top:1px solid var(--line);padding-top:9px}.info-exif summary{cursor:pointer;font-size:12px;color:#59665b;list-style:none}.info-exif summary::-webkit-details-marker{display:none}.info-exif summary::before{content:'›';display:inline-block;margin-right:8px;transition:transform .15s}.info-exif[open] summary::before{transform:rotate(90deg)}.info-exif pre{font:11px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#626c63;background:#f3f2ed;border-radius:8px;padding:9px}
+input[type=number]{padding:6px 8px;border:1px solid var(--line2);border-radius:9px;background:#fbfaf7;color:var(--txt);font-size:13px}
+.tblwrap{max-height:min(58vh,640px);overflow:auto;-webkit-overflow-scrolling:touch}
+#pgBar{display:flex;justify-content:flex-start;align-items:center;gap:16px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin:0}.pg-left,.pg-right{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.pg-size input{width:68px;min-height:34px;padding:5px 8px}.pg-right{margin-left:0;padding-left:14px;border-left:1px solid var(--line)}.pg-right button{padding:7px 11px}.photo-tools .db-sep{color:#a8aaa1}
+#v-system,#v-sync,#v-log{background:transparent;border:0;box-shadow:none;padding:0}
+#v-system .panel-title,#v-sync .panel-title,#v-log .panel-title{background:transparent;margin:0 0 18px;padding:0}
+#v-system .panel-title b::before{content:'系统状态'}#v-sync .panel-title b::before{content:'照片同步'}#v-log .panel-title b::before{content:'使用说明'}
+.sc{background:#fbfaf7;border-color:var(--line);box-shadow:var(--shadow);border-radius:14px}.gc{border-color:var(--line);border-radius:14px}.gc-foot,.gc-row{background:#fbfaf7}.sync-help{border-left-color:#a8b5a8}
+.sync-gate-panel,.sync-month-panel,.sync-runs-panel{padding:20px 22px;border:1px solid var(--line);border-radius:14px;background:rgba(251,250,247,.94);box-shadow:var(--shadow);margin:0 0 16px;min-width:0}
+.sync-section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 16px}.sync-section-heading h2,.system-card h2{font-size:17px;line-height:1.35;margin:0;font-weight:650}.sync-section-heading p{margin:0;color:var(--mut);font-size:11px}
+.sync-gate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+.sync-gate-card{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:start;gap:12px;padding:8px 18px;border-right:1px solid var(--line);min-width:0}
+.sync-gate-card:first-child{padding-left:0}.sync-gate-card:last-child{padding-right:0;border-right:0}
+.sync-gate-icon{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:var(--brand);background:#e6ede6;font-size:19px;font-weight:700}
+.sync-gate-card.is-ready .sync-gate-icon{background:var(--brand);color:#fff}.sync-gate-card.is-waiting .sync-gate-icon{background:#f4eadb;color:#9a6d30}
+.sync-gate-card h3{font-size:14px;margin:1px 0 5px}.sync-gate-card p{font-size:12px;color:var(--mut);line-height:1.6;margin:0 0 5px}.sync-gate-card small{font-size:11px;color:#7b857d}
+.sync-gate-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding:11px 13px;border-radius:9px;background:#e9efe9;color:#506556;font-size:12px}
+.sync-gate-foot.is-waiting{background:#f5eee2;color:#866a3d}.sync-gate-foot .checked-at{color:var(--mut);font-size:10px}
+.sync-rules{margin:-2px 0 16px;border-bottom:1px solid var(--line);color:var(--mut);font-size:12px}
+.sync-rules summary{cursor:pointer;list-style:none;padding:8px 2px}.sync-rules summary::before{content:'›';display:inline-block;margin-right:8px;font-size:16px;transition:transform .15s}.sync-rules[open] summary::before{transform:rotate(90deg)}
+.sync-rules #syncSum{padding:0 4px 12px}.sync-rules .sync-summary{margin:0 0 10px}.sync-rules .sync-help{font-size:11px;line-height:1.65}
+.sync-month-panel,.sync-runs-panel{padding-bottom:18px}.sync-month-panel .sub-head,.sync-runs-panel .sub-head{margin-top:0}
+.sync-disabled,.sync-message{padding:14px 16px;margin:0 0 16px;border:1px solid var(--line);border-radius:10px;background:#f7f6f1;color:var(--mut);font-size:13px;line-height:1.7}
+.sync-message{border-color:#eadcb8;background:#faf4e8;color:#806537}
+.system-dashboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}
+.system-card{min-width:0;padding:20px 22px;border:1px solid var(--line);border-radius:14px;background:rgba(251,250,247,.94);box-shadow:var(--shadow)}
+.system-card h2{margin-bottom:14px}.storage-total{font-size:14px;color:var(--mut);font-weight:500;margin-left:8px}.system-storage,.system-service{grid-column:1/-1}
+.system-storage-content{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,.9fr);align-items:center;gap:26px}
+.system-storage-value{display:flex;align-items:baseline;gap:9px;margin:0 0 7px}.system-storage-value strong{font-size:30px;line-height:1.2}.system-storage-value span{font-size:13px;color:var(--mut)}
+.system-meter-row{display:grid;grid-template-columns:minmax(0,1fr) 58px;align-items:center;gap:16px}.system-meter{height:12px;border-radius:8px;background:#e6e8e2;overflow:hidden}.system-meter i{display:block;height:100%;border-radius:inherit;background:var(--brand);transition:width .35s}.system-meter.warning i{background:#c28b3f}.system-meter.critical i{background:#c46d42}.system-meter.stop i{background:var(--bad)}
+.system-meter-row strong{font-size:22px}.system-storage-meta{border-left:1px solid var(--line);padding-left:24px}.system-storage-meta>span:not(.live-status){display:block;color:var(--mut);font-size:11px;margin-bottom:8px}.system-storage-meta p{margin:9px 0 0;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--mut);line-height:1.6}
+.system-kv{display:grid;gap:0;margin:0}.system-kv>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12px}.system-kv>div:last-child{border-bottom:0}.system-kv dt{color:var(--mut)}.system-kv dd{margin:0;text-align:right;overflow-wrap:anywhere}.system-note{display:flex;gap:8px;align-items:flex-start;margin:13px 0 0;padding-top:12px;border-top:1px dashed var(--line);color:var(--mut);font-size:11px;line-height:1.7}.system-service-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.system-service-list>div{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-right:1px solid var(--line);font-size:12px}.system-service-list>div:last-child{border:0}.system-service-list>div>span:first-child{color:var(--mut)}
+.live-status{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:20px;background:#e8eee8;color:var(--brand);font-size:11px;font-weight:650;white-space:nowrap}.live-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.live-status.warning{background:#f5eee2;color:#9a6d30}.live-status.bad{background:#f8e9e6;color:#ad5149}.live-status.muted{background:#efeee9;color:#747b73}
+.tblwrap{max-height:min(58vh,640px);overflow:auto;border:1px solid var(--line);border-radius:10px}.mwrap table{min-width:920px}.tblwrap table{background:#fbfaf7}.tblwrap th{position:sticky;top:0;z-index:1;background:#eeeee8}
+#v-log .tblwrap{max-height:min(62vh,700px)}#v-log .sub-head:first-of-type{margin-top:0}.debug-log{background:#f7f6f1;border-color:var(--line)}
+#lbx{padding:clamp(18px,4vw,52px);background:radial-gradient(ellipse at 50% 38%,rgba(70,88,72,.42),rgba(28,35,30,.64) 55%,rgba(25,30,27,.76));backdrop-filter:blur(18px) saturate(.82)}
+.lbx-stage{width:min(720px,100%);max-width:100%;gap:0;padding:8px;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:rgba(245,245,236,.12);backdrop-filter:blur(14px);box-shadow:0 22px 70px rgba(0,0,0,.32)}
+.lbx-bar{padding:4px 6px 12px;border:0;border-radius:0;background:transparent;color:#f4f3ec;flex-wrap:nowrap;min-height:48px}.lbx-bar .dim{color:rgba(245,245,236,.82);font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lbx-bar button.ghost{flex:none;border-color:rgba(255,255,255,.25);color:#f3f2ea;background:rgba(255,255,255,.08);transition:background .15s,color .15s}.lbx-bar button.ghost:hover{background:rgba(255,255,255,.16);color:#fff}.lbx-bar button.ghost:focus-visible{outline:2px solid rgba(255,255,255,.65);outline-offset:2px}
+#lbxImg.hidden,#lbxVid.hidden{display:none}
+#lbxImg,#lbxVid{display:block;width:100%;height:auto;max-height:calc(100dvh - 180px);object-fit:contain;background:transparent;border-radius:9px;box-shadow:none;margin:0}
+@media(max-width:1000px){#v-upload{grid-template-columns:minmax(0,1fr) 270px}.photo-workspace{grid-template-columns:minmax(0,1fr) 270px}}
+@media(max-width:780px){#v-upload{grid-template-columns:minmax(0,1fr)}#v-upload>section.panel,#v-upload>aside.panel{grid-column:1;grid-row:auto;min-width:0;width:100%}#v-upload .upload-flow{grid-column:1;grid-row:auto;position:static}#v-upload .upload-recent{grid-column:1;grid-row:auto}.photo-workspace{grid-template-columns:minmax(0,1fr)}#photoInfo{position:static;max-height:none;grid-row:1}#phGrid{max-height:58vh}}
+@media(max-width:640px){#v-upload{grid-template-columns:minmax(0,1fr)}#v-upload>section.panel,#v-upload>aside.panel{grid-column:1;grid-row:auto;min-width:0;width:100%}#v-upload .upload-flow{grid-column:1;grid-row:auto;position:static}#v-upload .upload-recent{grid-column:1;grid-row:auto}#pickList li,.pick-head{grid-template-columns:88px minmax(0,1fr) 54px 62px 22px;gap:6px;padding-left:8px;padding-right:8px}.pick-preview{width:88px;height:58px}.pk-size,.pk-status{font-size:10px}header{grid-template-columns:1fr;gap:8px}header h1{font-size:14px}nav{width:100%;overflow-x:auto}main{padding:16px 12px}.panel{padding:16px}.page-head{margin-bottom:14px}.page-copy h2{font-size:18px}#v-photos{padding:14px}.photo-tools{gap:8px}.photo-tools .db-field{width:100%}.photo-tools .db-extra{width:100%;gap:7px}.photo-tools input[type=date]{flex:1;min-width:0}.photo-workspace{gap:12px}#phGrid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:8px}#pgBar{align-items:flex-start;flex-direction:column}.pg-right{margin-left:0}#v-log .tblwrap table{min-width:900px}.lbx-bar{padding:8px 10px}}
+
+/* Approved system prototype: full-width storage, paired status cards, service bar. */
+#v-system{overflow:visible;border-radius:0}
+#v-system .system-dashboard{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}#v-system .system-card{padding:22px;border-radius:4px;background:var(--panel);box-shadow:none}
+#v-system .system-card h2{font-size:22px;margin-bottom:25px}#v-system .system-storage-content{grid-template-columns:1.7fr 1fr;gap:40px}
+#v-system .system-storage-value{display:block;font-size:17px;line-height:1.6;margin:0 0 14px}#v-system .system-storage-value strong{font-size:17px;line-height:inherit;color:var(--txt)}#v-system .storage-total{margin:0;font-weight:700}
+#v-system .system-meter-row{grid-template-columns:minmax(0,1fr) 70px;gap:26px}#v-system .system-meter{height:23px;border-radius:15px}#v-system .system-meter-row>strong{font-size:30px}
+#v-system .storage-available{margin:16px 0 0;color:var(--mut);font-size:15px}#v-system .system-storage-meta{padding-left:40px}#v-system .system-storage-meta>span:not(.live-status){font-size:14px;margin-bottom:16px}#v-system .system-storage-meta p{font-size:13px;padding-top:16px;margin-top:16px}
+#v-system .system-kv>div{font-size:14px;padding:16px 0;justify-content:flex-start;gap:20px}#v-system .system-kv dt{flex:1}#v-system .system-kv dd{min-width:48%;text-align:left}#v-system .system-photo-data .system-kv dd{min-width:0;text-align:right}#v-system .system-processing .system-kv dt{flex:none;width:90px}
+#v-system .system-note{border:0;padding-top:14px;font-size:12px}#v-system .live-status{border-radius:4px;font-size:13px;font-weight:500;padding:5px 12px}#v-system .system-processing .live-status{background:transparent;padding:0}
+#v-system .system-service-list{grid-template-columns:1fr 1fr 1.3fr;gap:0;margin:26px 0 8px}#v-system .system-service-list>div{padding:0 24px;font-size:14px;justify-content:flex-start;gap:24px}#v-system .system-service-list>div:first-child{padding-left:0}#bSys{display:inline-flex;align-items:center;gap:8px}
+@media(max-width:760px){#v-system .system-dashboard{grid-template-columns:minmax(0,1fr)}#v-system .system-card{padding:18px}#v-system .system-storage-content{grid-template-columns:1fr;gap:18px}#v-system .system-storage-meta{border-left:0;border-top:1px solid var(--line);padding:18px 0 0}#v-system .system-service-list{grid-template-columns:1fr;gap:16px;margin-top:18px}#v-system .system-service-list>div{padding:0;border:0}#v-system .system-card h2{font-size:21px;margin-bottom:18px}#v-system .system-storage-value,#v-system .system-storage-value strong{font-size:15px}}
+
+/* ---------- 说明页：横向流程、可滚动命令与安全提示 ---------- */
+.help-page{width:100%;min-width:0}
+.help-page>.page-head{margin:0 0 43px;padding-bottom:0;border-bottom:0}
+.help-flow{padding:0 0 26px;border-bottom:1px solid var(--line)}
+.help-section-heading{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:20px}
+.help-section-heading h2{margin:0;font-size:21px;letter-spacing:-.025em}
+.help-section-heading p{margin:5px 0 0;color:var(--mut);font-size:13px}
+.help-step-track{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:22px;list-style:none;margin:0;padding:0}
+.help-step-card{position:relative;min-width:0}
+.help-step-arrow{position:absolute;left:110px;top:18px;width:calc(100% - 110px);height:20px;color:#a4b2a7;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.help-step-visual{display:flex;align-items:center;gap:14px;min-height:56px;margin-bottom:15px}
+.help-step-number{display:grid;place-items:center;width:42px;height:42px;flex:none;border-radius:50%;background:#e7eee7;color:var(--brand);font-weight:700}
+.help-step-icon{display:grid;place-items:center;width:42px;height:42px;color:var(--brand);flex:none}
+.help-step-icon svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+.help-step-card h3{margin:0 0 7px;font-size:15px;line-height:1.4;color:var(--txt)}
+.help-step-card p{margin:0;color:var(--mut);font-size:13px;line-height:1.65}
+.help-safety-note{display:flex;align-items:center;gap:12px;margin-top:23px;padding:14px 18px;border-radius:8px;background:#e8f0e9;color:#637268;font-size:13px;line-height:1.6}
+.help-note-icon{display:grid;place-items:center;flex:none;width:19px;height:19px;border:1.5px solid currentColor;border-radius:50%;font:600 12px/1 Georgia,serif}
+.help-workspace{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(320px,.92fr);gap:38px;padding:38px 0 24px}
+.help-section-heading{align-items:end;margin-bottom:20px}
+.help-scroll-hint{font-size:11px;color:var(--mut);white-space:nowrap}
+.help-command-list{max-height:min(62vh,690px);overflow:auto;padding:0 8px 0 0;scrollbar-gutter:stable}
+.help-command{display:grid;grid-template-columns:minmax(150px,.88fr) minmax(160px,1.16fr) 32px;align-items:center;gap:15px;padding:16px 0;border-bottom:1px solid var(--line)}
+.help-command h3{margin:0 0 5px;font-size:14px;line-height:1.4}
+.help-command p{margin:0;color:var(--mut);font-size:12px;line-height:1.6}
+.help-command>code{display:block;min-width:0;padding:8px 9px;border-radius:8px;background:#f1f0eb;color:#313d34;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.copy-command{display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:#758078;font-size:18px}
+.copy-command:hover{background:#e9eee8;color:var(--brand)}
+.help-more{padding-top:17px;color:var(--mut);font-size:12px;line-height:1.7}
+.help-more code{padding:2px 5px;border-radius:5px;background:#e9eee8;color:#566b5d;font-size:11px}
+.help-danger-panel{align-self:stretch;min-height:330px;padding:25px 26px;border:1px solid #f0d9d5;border-radius:12px;background:#fcf1ef;color:#89524e}
+.danger-heading{display:flex;align-items:center;gap:12px;margin-bottom:15px;color:#af4a4b}
+.danger-heading>span{display:grid;place-items:center;width:25px;height:25px;border:1.6px solid currentColor;border-radius:50%;font-weight:700}
+.danger-heading h2{margin:0;font-size:21px;letter-spacing:-.02em}
+.help-danger-panel>p{margin:0;font-size:13px;line-height:1.8}
+.danger-command{margin-top:25px;padding-top:24px;border-top:1px solid #efd9d5}
+.danger-command h3{margin:0 0 10px;color:#aa4748;font-size:14px}
+.danger-code{display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;background:#f8dfdb;color:#9d4648}
+.danger-code code{font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.danger-code .copy-command:hover{background:#f3d0cb;color:#963c3e}
+.help-danger-panel .danger-foot{margin-top:16px;line-height:1.8}
+.help-definition{display:flex;align-items:center;gap:11px;padding:15px 2px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--mut);font-size:12px;line-height:1.6}
+.help-definition time{margin-left:auto;white-space:nowrap;color:#8b928a}
+.help-faq{padding:17px 2px;border-bottom:1px solid var(--line);color:var(--mut)}
+.help-faq summary{cursor:pointer;list-style:none;font-size:14px}
+.help-faq summary::before{content:"›";display:inline-block;margin-right:10px;font-size:18px;transition:transform .15s}
+.help-faq[open] summary::before{transform:rotate(90deg)}
+.help-faq>div{max-width:800px;padding:12px 25px 2px}
+.help-faq h3{margin:14px 0 4px;color:var(--txt);font-size:13px}
+.help-faq p{margin:0;font-size:12px;line-height:1.7}
+.help-page .debug-log{margin-bottom:24px}
+@media(max-width:1050px){.help-step-track{gap:14px}.help-step-visual{gap:8px}.help-step-arrow{left:104px;width:calc(100% - 104px)}.help-workspace{grid-template-columns:minmax(0,1fr) minmax(270px,.85fr);gap:22px}.help-command{grid-template-columns:minmax(120px,.8fr) minmax(145px,1.2fr) 30px;gap:10px}}
+@media(max-width:760px){.help-step-track{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}.help-step-arrow{display:none}.help-step-card:last-child{grid-column:1/-1}.help-workspace{grid-template-columns:1fr;gap:20px;padding-top:26px}.help-danger-panel{min-height:0}.help-command-list{max-height:58vh}}
+@media(max-width:520px){.help-page>.page-head{margin-bottom:28px}.help-step-track{grid-template-columns:1fr;gap:8px}.help-step-card,.help-step-card:last-child{display:grid;grid-template-columns:48px minmax(0,1fr);column-gap:12px;align-items:start}.help-step-visual{grid-row:1/span 2;display:block;position:relative;min-height:62px;margin:0}.help-step-number{position:absolute;left:0;top:0;width:26px;height:26px;font-size:11px}.help-step-icon{position:absolute;left:12px;top:24px;width:32px;height:32px}.help-step-icon svg{width:28px;height:28px}.help-step-card h3{margin:2px 0 3px}.help-step-card p{grid-column:2}.help-safety-note{align-items:flex-start;padding:12px}.help-section-heading{align-items:start;flex-direction:column;gap:8px}.help-command{grid-template-columns:minmax(0,1fr) 30px;gap:8px}.help-command>div{grid-column:1}.help-command>code{grid-column:1;grid-row:2}.help-command>.copy-command{grid-column:2;grid-row:1/span 2}.help-danger-panel{padding:20px}.danger-heading h2{font-size:18px}.help-definition{align-items:flex-start;flex-wrap:wrap}.help-definition time{margin-left:30px}}
+@media(min-width:781px) and (max-width:1000px){#v-upload{grid-template-columns:minmax(0,1fr) 300px}.photo-workspace{grid-template-columns:minmax(0,1fr) 300px}}
+@media(max-width:760px){.sync-gate-grid{grid-template-columns:1fr}.sync-gate-card,.sync-gate-card:first-child,.sync-gate-card:last-child{padding:12px 0;border-right:0;border-bottom:1px solid var(--line)}.sync-gate-card:last-child{border-bottom:0}.sync-section-heading{align-items:flex-start;flex-direction:column;gap:4px}.system-dashboard{grid-template-columns:minmax(0,1fr)}.system-storage,.system-service{grid-column:auto}.system-storage-content{grid-template-columns:1fr;gap:14px}.system-storage-meta{border-left:0;border-top:1px solid var(--line);padding:13px 0 0}.system-service-list{grid-template-columns:1fr;gap:2px}.system-service-list>div{border-right:0;border-bottom:1px solid var(--line);padding:9px 0}.system-service-list>div:last-child{border-bottom:0}}
+@media(max-width:780px){#v-upload .upload-trust{margin-top:20px}}
+@media(max-width:520px){#v-upload .upload-dropzone{min-height:124px;padding:16px}#v-upload .upload-trust{grid-template-columns:1fr;margin-top:14px}.upload-trust-item{padding:9px 10px}.sync-gate-panel,.sync-month-panel,.sync-runs-panel,.system-card{padding:16px}.sync-gate-foot{align-items:flex-start;flex-direction:column}.system-storage-value strong{font-size:27px}.system-meter-row{gap:10px}.pg-right{border-left:0;border-top:1px solid var(--line);padding:10px 0 0}}
+
 </style>
 </head>
 <body>
 <header>
-  <h1>Photo Gateway</h1>
+  <h1><span class="brandmark" aria-hidden="true"><svg viewBox="0 0 48 48" role="img" focusable="false">
+    <defs><clipPath id="brand-aperture-clip"><circle cx="24" cy="24" r="20"/></clipPath></defs>
+    <g clip-path="url(#brand-aperture-clip)">
+      <circle cx="24" cy="24" r="20" fill="#365b4a"/>
+      <path d="M4 13 18 22 8 31 4 27Z" fill="#8fa994"/>
+      <path d="M19 4h14L26 19 18 22Z" fill="#4e705e"/>
+      <path d="m28 20 9-15 9 15Z" fill="#294638"/>
+      <path d="m28 23 19-1v12L30 29Z" fill="#819987"/>
+      <path d="m28 28 17 9-8 9-9-13Z" fill="#4b6957"/>
+      <path d="M20 30h8l9 16H11Z" fill="#c98262"/>
+      <path d="M17 30V20a7 7 0 0 1 14 0v10Z" fill="#e5ebe4"/>
+      <path d="M17 30V20a7 7 0 0 1 14 0v10M18 22 7 5m19 14L37 3m-7 20 18-1M29 29l17 9M19 30 9 45" fill="none" stroke="#f4f1e9" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/>
+    </g>
+  </svg></span><span class="brandtext">Photo Gateway<small>照片网关</small></span></h1>
   <nav>
     <a href="#" data-v="upload" class="active">上传</a>
     <a href="#" data-v="photos">照片</a>
@@ -343,13 +532,14 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
   </div>
 
   <div id="v-upload">
-    <section class="panel">
-      <div class="row panel-title"><b>上传照片</b></div>
+    <section class="panel upload-main">
+      <div class="page-head"><span class="page-icon" aria-hidden="true">↑</span><div class="page-copy"><h2>上传照片</h2><p>选择来源设备，导入并归档照片</p></div></div>
+      <div id="uploadSelection" class="upload-selection">
       <div class="actions-upload">
         <label class="lbl" for="device">照片来源设备</label>
         <select id="device"></select>
       </div>
-      <label class="picker" id="picker" for="files">
+      <label class="picker upload-dropzone" id="picker" for="files">
         <input type="file" multiple id="files" class="sr-file"
                accept="image/*,video/*,.heic,.heif,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.mp4,.mov,.m4v,.3gp,.webm,.mkv,.avi">
         <span class="pk-ico" aria-hidden="true">
@@ -363,32 +553,41 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
         </span>
         <span class="pk-badge hidden" id="pickBadge">0</span>
       </label>
-      <div id="pickListWrap" class="hidden"><ul id="pickList"></ul></div>
+      <div id="uploadTrust" class="upload-trust" aria-label="上传说明">
+        <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">＋</span><span><b>多选导入</b><small>可追加选择多批文件</small></span></div>
+        <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">◉</span><span><b>本地预览</b><small>浏览器读取，不预先上传</small></span></div>
+        <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">✓</span><span><b>原片保留</b><small>归档时不压缩、不修改</small></span></div>
+      </div>
+      <div id="pickListWrap" class="hidden"><div class="pick-head"><span>预览</span><span>文件名</span><span>大小</span><span>状态</span><span></span></div><ul id="pickList"></ul></div>
       <div class="pickmeta hidden" id="pickMeta">
         <span class="dim" id="pickInfo"></span>
         <span id="pickNote" class="dup"></span>
         <span class="pm-acts">
           <button type="button" class="ghost" id="bClearFiles">清空全部</button>
-          <button type="button" id="bPre" disabled>检测并上传</button>
+          <button type="button" id="bPre" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></svg><span id="bPreLabel">检测并上传</span></button>
         </span>
       </div>
-      <div class="dim" id="phase">—</div>
-    </section>
+      </div>
+      <div class="dim" id="phase" role="status" aria-live="polite"></div>
 
-    <section class="panel hidden" id="Pdup">
-      <div class="row panel-title"><b>疑似重复照片</b><span class="dim">这些文件可能已上传过，请逐项或统一决定</span></div>
+    <div class="upload-stage hidden" id="Pdup">
+      <div class="upload-stage-head"><b>发现可能重复的照片</b><span class="dim">这些文件可能已上传过，请逐项或统一决定</span></div>
       <div class="row"><button id="bSkipAll" class="ghost">全部跳过</button><button id="bReAll">全部重新上传</button></div>
       <div class="tblwrap"><table><thead><tr><th>文件名</th><th>大小</th><th>决定</th></tr></thead><tbody id="dupRows"></tbody></table></div>
-    </section>
+    </div>
 
-    <section class="panel hidden" id="Ptx">
-      <div class="row panel-title"><b id="txTitle">处理中</b><span class="dim" id="txStage"></span></div>
+    <div class="upload-stage hidden" id="Pdeleted" role="status" aria-live="polite">
+      <div class="upload-stage-head"><b>发现曾主动删除过的照片</b><span class="dim">SHA-256 内容完全一致，请人工选择恢复或继续保持删除</span></div>
+      <div id="deletedReviews"></div>
+    </div>
+    <div class="upload-stage hidden" id="Ptx" role="status" aria-live="polite">
+      <div class="upload-stage-head"><b id="txTitle" data-label="处理中"></b><span class="dim" id="txStage"></span></div>
       <progress id="pg" max="100" value="0"></progress>
       <div class="tx-line" id="txCur">准备…</div>
       <div class="dim" id="stT"></div>
-    </section>
+    </div>
 
-    <section class="panel hidden" id="Pres">
+    <div class="upload-stage hidden" id="Pres" role="status" aria-live="polite">
       <div class="res-hero" id="resHero">
         <span class="res-mark" id="resMark">✓</span>
         <div class="res-txt">
@@ -401,101 +600,105 @@ tr.danger code.bad{color:var(--bad);background:#fee2e2;font-weight:700}
       <div class="row res-acts">
         <button id="bMore">继续上传下一批</button>
       </div>
+    </div>
+    </section>
+    <aside class="panel upload-flow" aria-label="导入流程">
+      <div class="page-head"><span class="page-icon" aria-hidden="true">↻</span><div class="page-copy"><h2>导入流程</h2><p>从选择文件到完成归档</p></div></div>
+      <div class="flow-list"><div class="flow-step"><span class="flow-no">1</span><div><b>检查可能的重复文件</b><p>根据文件信息预检，疑似重复项由你确认。</p></div></div>
+      <div class="flow-step"><span class="flow-no">2</span><div><b>上传并按拍摄月份归档</b><p>保留原始文件，不压缩、不修改。</p></div></div>
+      <div class="flow-step"><span class="flow-no">3</span><div><b>上传后检查同步条件</b><p>条件满足时，照片自动同步至 NAS。</p></div></div></div>
+      <div class="flow-foot">预览在浏览器本地生成；无法预览的文件仍可上传。</div>
+    </aside>
+    <section class="panel upload-recent" aria-labelledby="recentTitle">
+      <div class="page-head"><span class="page-icon" aria-hidden="true">↻</span><div class="page-copy"><h2 id="recentTitle">最近导入</h2><p>来自实际上传会话记录</p></div><button class="ghost" id="bRecent" type="button">刷新</button></div>
+      <div class="tblwrap recent-wrap"><table class="recent-table"><thead><tr><th>导入时间</th><th>来源设备</th><th>文件数与处理结果</th><th>状态</th></tr></thead><tbody id="recentImports"><tr><td colspan="4" class="dim">正在读取导入记录…</td></tr></tbody></table></div>
     </section>
   </div>
 
   <div id="v-photos" class="hidden panel">
-    <div class="row panel-title"><b>照片资产</b><button id="bPh" class="ghost">刷新</button></div>
-    <div class="datebar">
-      <div class="db-field">
-        <span class="db-label" id="rangeLabel">拍摄日期</span>
-        <input type="date" id="df" value="" aria-label="开始日期">
-        <span class="db-sep">→</span>
-        <input type="date" id="dt" value="" aria-label="结束日期（含）">
-        <button id="bFilter">检索</button>
+    <div class="page-head"><span class="page-icon" aria-hidden="true">▧</span><div class="page-copy"><h2 id="galleryTitle">照片</h2><p id="gallerySubtitle">按拍摄时间浏览已归档照片</p></div><button id="bPh" class="ghost">刷新</button></div>
+    <div class="photo-tools">
+      <div class="seg" role="group" aria-label="检索维度">
+        <button type="button" class="chip active" data-field="taken">拍摄时间</button>
+        <button type="button" class="chip" data-field="uploaded">上传时间</button>
       </div>
-      <div class="db-extra">
-        <div class="seg" role="group" aria-label="检索维度">
-          <button type="button" class="chip active" data-field="taken">按拍摄时间</button>
-          <button type="button" class="chip" data-field="uploaded">按上传时间</button>
-        </div>
-        <div class="seg" role="group" aria-label="排序方向">
-          <button type="button" class="chip active" data-order="desc">最新在前</button>
-          <button type="button" class="chip" data-order="asc">最早在前</button>
-        </div>
-        <div class="db-quick" role="group" aria-label="快捷时间范围">
-          <button type="button" class="chip active" data-r="all">全部</button>
-          <button type="button" class="chip" data-r="today">今天</button>
-          <button type="button" class="chip" data-r="7d">近 7 天</button>
-          <button type="button" class="chip" data-r="30d">近 30 天</button>
-        </div>
-      </div>
+      <div class="db-field"><input type="date" id="df" value="" aria-label="开始日期"><span class="db-sep">至</span><input type="date" id="dt" value="" aria-label="结束日期（含）"></div>
+      <select id="photoDevice" aria-label="来源设备"><option value="">全部设备</option></select>
+      <select id="photoMime" aria-label="照片类型"><option value="">全部类型</option></select>
+      <div class="seg" role="group" aria-label="排序方向"><button type="button" class="chip active" data-order="desc">最新在前</button><button type="button" class="chip" data-order="asc">最早在前</button></div>
+      <button id="bFilter">筛选</button>
+      <button id="bRecycle" class="ghost">回收站</button>
     </div>
-    <div id="phGrid"></div>
-    <div class="row" id="pgBar"></div>
+    <div class="photo-workspace"><div class="photo-gallery"><div id="phGrid"></div><div class="row" id="pgBar"></div></div><aside id="photoInfo" aria-live="polite"><div class="photo-info-empty">悬停或选择照片查看信息</div></aside></div>
   </div>
 
   <div id="v-system" class="hidden panel">
-    <div class="row panel-title"><b>系统状态</b><button id="bSys" class="ghost">刷新</button></div>
-    <div id="sysCards"></div>
+    <div class="page-head"><span class="page-icon" aria-hidden="true">◷</span><div class="page-copy"><h2>系统状态</h2><p>查看照片网关的运行与存储情况。</p></div><button id="bSys" class="ghost"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.5 6.5a8 8 0 0 1 13 3M17.5 17.5a8 8 0 0 1-13-3"/></svg>刷新</button></div>
+    <div id="sysCards" class="system-dashboard"></div>
   </div>
 
   <div id="v-sync" class="hidden panel">
-    <div class="row panel-title"><b>照片同步状态</b><button id="bSync" class="ghost">刷新</button></div>
-    <div id="syncSum" class="hidden"></div>
-    <div id="syncGates"></div>
-    <div id="syncBody" class="mono hidden"></div>
-    <div id="syncMsg" style="display:none;margin:6px 0;padding:4px 8px;background:#fff8e1;border:1px solid #e0c060;"></div>
-    <div id="syncTable"></div>
-    <div id="syncBatches"></div>
+    <div class="page-head"><span class="page-icon" aria-hidden="true">⇄</span><div class="page-copy"><h2>照片同步</h2><p>查看 NAS 同步条件、月份进度与最近任务</p></div><button id="bSync" class="ghost">刷新</button></div>
+    <section id="syncGates" class="sync-gate-panel" aria-label="同步前置条件">
+      <div class="sync-section-heading"><h2>开始同步前需要满足的条件</h2><p>全部通过后，系统会按计划自动同步</p></div>
+      <div id="syncGateCards" class="sync-gate-grid"></div>
+      <div id="syncGateStatus" class="sync-gate-foot"></div>
+    </section>
+    <details id="syncRules" class="sync-rules hidden"><summary>同步规则与运行参数</summary><div id="syncSum"></div></details>
+    <div id="syncBody" class="sync-disabled hidden" role="status"></div>
+    <div id="syncMsg" class="sync-message hidden" role="status" aria-live="polite"></div>
+    <section id="syncTable" class="sync-month-panel" aria-label="各月同步明细"></section>
+    <section id="syncBatches" class="sync-runs-panel" aria-label="最近同步轮次"></section>
   </div>
 
-  <div id="v-log" class="hidden panel">
-    <div class="row panel-title"><b>说明</b></div>
-
-    <div class="sub-head"><b>它是怎么工作的</b><span class="dim">上传 → 去重 → 归档 → 同步 → 本地清理</span></div>
-    <div class="help-steps">
-      <div class="hs"><b>1. 上传照片</b><span>从手机 / 电脑浏览器或 App 把照片传到这台设备；系统会先“检测是否上传过”，再接收文件并写入临时区。</span></div>
-      <div class="hs"><b>2. 自动归档（入库）</b><span>后台把“已上传完成”的照片读取拍摄时间（没有拍摄信息的按文件时间），归档到 <code>Photos/年份/年月</code> 目录；整个过程不改动照片原文件，只是整理存放。</span></div>
-      <div class="hs"><b>3. 重复识别</b><span>同一张照片再次上传会被识别出来（按文件内容指纹），提示您“跳过”或“重传”；一张照片在库中只保留一份记录。</span></div>
-      <div class="hs"><b>4. 网页预览与缓存</b><span>照片页展示的是自动生成的小尺寸预览图，浏览时临时存放在缓存目录，超过保留时间（默认 90 天）会自动清理，需要时会重新生成。</span></div>
-      <div class="hs"><b>5. 同步到 NAS（正式库）</b><span>等没有新的上传在等待处理后，系统把已归档照片单向复制到 NAS，并保留拍摄时间；NAS 上的照片库可由 Immich 等相册软件读取（本设备只做中转与短期保存）。同步按顺序检查几个条件，都满足才执行（见“照片同步状态”页）。</span></div>
-      <div class="hs"><b>6. 本地历史清理</b><span>已经成功同步到 NAS 并超过本地保留期（默认 90 天）的历史月份，可以删除本机副本释放空间。“照片同步状态”页只提示哪些月份可清理，不会自动删除。</span></div>
+  <div id="v-log" class="hidden help-page">
+    <div class="page-head"><span class="page-icon" aria-hidden="true">?</span><div class="page-copy"><h2>使用说明</h2><p>了解照片如何归档、同步，以及如何安全维护。</p></div></div>
+    <section class="help-flow" aria-labelledby="helpFlowTitle">
+      <ol class="help-step-track">
+        <li class="help-step-card"><div class="help-step-visual"><span class="help-step-number">1</span><span class="help-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3 3 3-4 5 6"/></svg></span></div><svg class="help-step-arrow" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"><path d="M1 10H62M54 3l8 7-8 7" vector-effect="non-scaling-stroke"/></svg><h3>上传照片</h3><p>选择设备与原始文件，上传到照片网关。</p></li>
+        <li class="help-step-card"><div class="help-step-visual"><span class="help-step-number">2</span><span class="help-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="13" height="15" rx="2"/><path d="M8 8h4M8 12h3M17 8l4 4-4 4"/></svg></span></div><svg class="help-step-arrow" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"><path d="M1 10H62M54 3l8 7-8 7" vector-effect="non-scaling-stroke"/></svg><h3>检查重复</h3><p>根据文件信息预检，疑似重复由你确认。</p></li>
+        <li class="help-step-card"><div class="help-step-visual"><span class="help-step-number">3</span><span class="help-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M3.5 10h17"/></svg></span></div><svg class="help-step-arrow" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"><path d="M1 10H62M54 3l8 7-8 7" vector-effect="non-scaling-stroke"/></svg><h3>按拍摄月份归档</h3><p>按照拍摄时间整理归档，原始文件不变。</p></li>
+        <li class="help-step-card"><div class="help-step-visual"><span class="help-step-number">4</span><span class="help-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01M11 7h7M11 17h7"/></svg></span></div><svg class="help-step-arrow" viewBox="0 0 64 20" preserveAspectRatio="none" aria-hidden="true"><path d="M1 10H62M54 3l8 7-8 7" vector-effect="non-scaling-stroke"/></svg><h3>自动同步到 NAS</h3><p>归档完成且条件满足时，自动同步至 NAS。</p></li>
+        <li class="help-step-card"><div class="help-step-visual"><span class="help-step-number">5</span><span class="help-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5"/></svg></span></div><h3>可选的本地历史清理</h3><p>需要人工执行命令，删除已同步且达到保留期的本机旧副本。</p></li>
+      </ol>
+      <div class="help-safety-note"><span class="help-note-icon" aria-hidden="true">i</span><span>原始照片不会被压缩或修改；本地清理仅删除确认已同步且达到保留期的本机副本。NAS 上的正式副本不受影响。</span></div>
+    </section>
+    <div class="help-workspace">
+      <section class="help-command-panel" aria-labelledby="helpCommandTitle">
+        <div class="help-section-heading"><div><h2 id="helpCommandTitle">常见维护命令</h2><p>以下为常用的维护命令示例，请在终端中执行。</p></div><span class="help-scroll-hint">共 9 项 · 上下滚动查看全部命令</span></div>
+        <div class="help-command-list" role="region" aria-label="常见维护命令，可滚动查看全部">
+          <article class="help-command"><div><h3>检查配置</h3><p>检查当前配置是否正确。</p></div><code>python -m photo_gateway check --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway check --config &lt;配置&gt;" aria-label="复制检查配置命令">⧉</button></article>
+          <article class="help-command"><div><h3>生成一致性数据库备份</h3><p>备份网关数据库，用于恢复与排查。</p></div><code>python -m photo_gateway db-backup --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway db-backup --config &lt;配置&gt;" aria-label="复制数据库备份命令">⧉</button></article>
+          <article class="help-command"><div><h3>生成登录密码哈希</h3><p>生成加密串后写入配置；不要公开展示结果。</p></div><code>python -m photo_gateway hash-password</code><button type="button" class="copy-command" data-copy="python -m photo_gateway hash-password" aria-label="复制密码哈希命令">⧉</button></article>
+          <article class="help-command"><div><h3>启动网页与后台服务</h3><p>在正确运行环境中启动；Docker 部署请在容器内执行。</p></div><code>python -m photo_gateway serve --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway serve --config &lt;配置&gt;" aria-label="复制服务启动命令">⧉</button></article>
+          <article class="help-command"><div><h3>清理过期临时文件与缓存</h3><p>只处理过期临时文件和预览缓存。</p></div><code>python -m photo_gateway maintenance --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway maintenance --config &lt;配置&gt;" aria-label="复制维护命令">⧉</button></article>
+          <article class="help-command"><div><h3>核对本地缺失文件</h3><p>标记本地已丢失的照片记录，不删除照片。</p></div><code>python -m photo_gateway maintenance --config &lt;配置&gt; --scan-missing</code><button type="button" class="copy-command" data-copy="python -m photo_gateway maintenance --config &lt;配置&gt; --scan-missing" aria-label="复制缺失文件核对命令">⧉</button></article>
+          <article class="help-command"><div><h3>补读旧照片 EXIF</h3><p>为旧照片补全拍摄信息，可重复执行。</p></div><code>python -m photo_gateway backfill-exif --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway backfill-exif --config &lt;配置&gt;" aria-label="复制补读 EXIF 命令">⧉</button></article>
+          <article class="help-command"><div><h3>对齐文件时间</h3><p>把旧文件的时间对齐到拍摄时间。</p></div><code>python -m photo_gateway align-mtime --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway align-mtime --config &lt;配置&gt;" aria-label="复制对齐文件时间命令">⧉</button></article>
+          <article class="help-command"><div><h3>预览可本地清理的月份（只查看）</h3><p>列出已同步且达到保留期的月份，供确认；不会删除文件。</p></div><code>python -m photo_gateway cleanup --config &lt;配置&gt;</code><button type="button" class="copy-command" data-copy="python -m photo_gateway cleanup --config &lt;配置&gt;" aria-label="复制清理预览命令">⧉</button></article>
+        </div>
+        <div class="help-more">查看完整命令说明：在终端运行 <code>python -m photo_gateway --help</code>，或参考项目 README 文档。</div>
+      </section>
+      <aside class="help-danger-panel" aria-labelledby="helpDangerTitle">
+        <div class="danger-heading"><span aria-hidden="true">!</span><h2 id="helpDangerTitle">本地清理需要谨慎</h2></div>
+        <p>只有已成功同步到 NAS 且超过保留期的月份才符合条件。先运行左侧预览命令核对；实际删除必须由维护人员在终端明确执行。</p>
+        <div class="danger-command"><h3>会删除本机历史照片副本</h3><div class="danger-code"><code>python -m photo_gateway cleanup --config &lt;配置&gt; --apply --yes</code><button type="button" class="copy-command" data-copy="python -m photo_gateway cleanup --config &lt;配置&gt; --apply --yes" aria-label="复制本地清理命令">⧉</button></div></div>
+        <p class="danger-foot">该命令会删除已同步且达到保留期的本机旧副本。请在确认无误后由维护人员执行。</p>
+      </aside>
     </div>
-
-    <div class="sub-head"><b>维护命令</b><span class="dim">在设备上用终端执行；涉及删除的操作已用红色标出，请先阅读“注意”</span></div>
-    <div class="tblwrap"><table class="ops">
-      <thead><tr><th style="width:34%">命令</th><th style="width:22%">作用</th><th style="width:24%">适合什么时候用</th><th style="width:20%">注意</th></tr></thead>
-      <tbody>
-        <tr><td><code>python -m photo_gateway check --config &lt;配置&gt;</code></td><td>检查配置文件是否正确</td><td>每次修改配置后、重启前</td><td>错误时会给出原因</td></tr>
-        <tr><td><code>python -m photo_gateway hash-password</code></td><td>生成登录密码的加密串</td><td>开启登录保护前</td><td>结果写进配置的密码字段</td></tr>
-        <tr><td><code>python -m photo_gateway serve --config &lt;配置&gt;</code></td><td>启动网页与后台处理服务</td><td>日常运行</td><td>修改配置后需重启生效</td></tr>
-        <tr><td><code>python -m photo_gateway maintenance --config &lt;配置&gt;</code></td><td>手动清理过期临时文件与预览缓存</td><td>磁盘紧张时，或不想等每日自动清理</td><td>只删过期缓存，安全</td></tr>
-        <tr><td><code>python -m photo_gateway maintenance --config &lt;配置&gt; --scan-missing</code></td><td>核对：标记本地文件已丢失的照片</td><td>外部误删文件后，让照片页不再显示缺失项</td><td>只做标记，不删任何文件</td></tr>
-        <tr><td><code>python -m photo_gateway backfill-exif --config &lt;配置&gt;</code></td><td>为旧照片补读拍摄信息</td><td>老库升级后想补全归档信息</td><td>可重复执行</td></tr>
-        <tr><td><code>python -m photo_gateway align-mtime --config &lt;配置&gt;</code></td><td>把旧文件的时间对齐到拍摄时间</td><td>时间线错乱时修复</td><td>可重复执行</td></tr>
-        <tr><td><code>python -m photo_gateway cleanup --config &lt;配置&gt;</code></td><td>预览可本地清理的月份（不删除）</td><td>想看看哪些历史月份已可清理</td><td>安全预览</td></tr>
-        <tr class="danger"><td><code class="bad">python -m photo_gateway cleanup --config &lt;配置&gt; --apply --yes</code></td><td class="bad">真正删除本机已同步的历史月份</td><td class="bad">确认 NAS 上已有备份后再执行</td><td class="bad">会永久删除本机该月照片副本，需两个参数同时给出才执行；删除会记录日志</td></tr>
-      </tbody>
-    </table></div>
-    <div class="dim" style="margin-top:6px">命令统一需要 Python 3.12 环境与合法配置；具体每个参数的说明见仓库 README「运维命令行」章节。上面约简写法中 &lt;配置&gt; 是配置文件的路径。</div>
-
-    <details class="debug-log">
-      <summary>技术日志（排查问题给技术人员看）</summary>
-      <div id="log"></div>
-    </details>
+    <div class="help-definition"><span class="help-note-icon" aria-hidden="true">i</span><span>归档 = 按拍摄月份整理；同步 = 单向复制至 NAS；清理 = 删除已安全同步的本机旧副本。</span><time id="helpDate"></time></div>
+    <details class="help-faq"><summary>常见问题</summary><div><h3>原始照片会被修改吗？</h3><p>不会。系统保留上传的原始文件；网页缩略图是独立缓存，可按需重建。</p><h3>清理会删除 NAS 上的照片吗？</h3><p>不会。清理命令只删除本机已确认同步且达到保留期的副本。</p></div></details>
+    <details class="debug-log"><summary>技术日志（排查问题给技术人员看）</summary><div id="log"></div></details>
   </div>
 </main>
 
 <!-- 原图灯箱预览 -->
 <div id="lbx" class="hidden" role="dialog" aria-modal="true" aria-label="图片预览">
-  <div class="lbx-stage">
+  <div id="lbxFrame" class="lbx-stage">
     <div class="lbx-bar">
       <span id="lbxName" class="dim"></span>
-      <span style="display:inline-flex;gap:8px;align-items:center">
-        <a id="lbxOpen" href="#" target="_blank" rel="noopener">新窗口打开原图</a>
-        <button id="lbxClose" class="ghost">关闭</button>
-      </span>
+      <button id="lbxDelete" class="ghost" aria-label="移入回收站">移入回收站</button>
+      <button id="lbxClose" class="ghost" aria-label="关闭照片预览">关闭</button>
     </div>
     <img id="lbxImg" alt="原图预览">
     <video id="lbxVid" class="hidden" controls playsinline preload="metadata"></video>
@@ -522,21 +725,37 @@ $("bMore").onclick=resetUpload;
 
 $("bLogin").onclick=async()=>{ try{const j=await api("POST","/auth/login",{username:$("u").value,password:$("p").value});token=j.data.token;$("v-login").classList.add("hidden");log("登录成功");await init();}catch(e){log("登录失败 "+e.message);} };
 
+for(const button of document.querySelectorAll(".copy-command")){
+  button.addEventListener("click",async()=>{
+    try{
+      await navigator.clipboard.writeText(button.dataset.copy||"");
+      button.textContent="✓";
+      button.setAttribute("aria-label","命令已复制");
+      setTimeout(()=>{button.textContent="⧉";},1400);
+    }catch(e){
+      log("复制命令失败："+e.message);
+      button.textContent="!";
+      setTimeout(()=>{button.textContent="⧉";},1400);
+    }
+  });
+}
+const helpDate=$("helpDate");
+if(helpDate)helpDate.textContent=new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Shanghai"}).format(new Date())+" · Asia/Shanghai";
+
 function showView(v){ ["upload","photos","system","sync","log"].forEach(k=>{const el=document.getElementById("v-"+k); if(el) el.classList.toggle("hidden", k!==v);}); document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.v===v)); }
 document.querySelectorAll("nav a").forEach(a=>a.onclick=e=>{e.preventDefault(); showView(a.dataset.v);
- if(a.dataset.v==="photos")loadPhotos(); if(a.dataset.v==="system")loadSys(); if(a.dataset.v==="sync")loadSync(); });
+ if(a.dataset.v==="upload")loadRecent(); if(a.dataset.v==="photos"){loadPhotoDevices();if(recycleMode)switchGalleryMode(false);else loadPhotos();} if(a.dataset.v==="system")loadSys(); if(a.dataset.v==="sync")loadSync(); });
 $("bSync").onclick=loadSync;
 async function loadSync(){ try{
   const j=await api("GET","/sync/overview"); const d=j.data;
-  const sum=$("syncSum");
-  $("syncTable").innerHTML=""; $("syncBatches").innerHTML=""; $("syncGates").innerHTML="";
+  const sum=$("syncSum"), rules=$("syncRules"), gates=$("syncGates"), months=$("syncTable"), batches=$("syncBatches");
+  months.innerHTML=""; batches.innerHTML=""; $("syncGateCards").innerHTML=""; $("syncGateStatus").innerHTML="";
   if(!d.enabled){
-    sum.classList.add("hidden");
+    rules.classList.add("hidden"); gates.classList.add("hidden"); months.classList.add("hidden"); batches.classList.add("hidden");
     $("syncBody").classList.remove("hidden");
-    $("syncBody").textContent="照片同步未启用：请让管理员在配置中开启“照片同步”（NAS 地址等）并重启服务。";
+    $("syncBody").textContent="照片同步尚未启用。请在服务配置中开启照片同步并重启服务后，再查看同步状态。";
     return; }
-  $("syncBody").classList.add("hidden");
-  sum.classList.remove("hidden");
+  $("syncBody").classList.add("hidden"); gates.classList.remove("hidden"); months.classList.remove("hidden"); batches.classList.remove("hidden"); rules.classList.remove("hidden");
   const lb=d.batches&&d.batches[0]||null;
   const lastT=lb?(String(lb.completed_at||lb.started_at||"").slice(0,16)||"—"):"—";
   sum.innerHTML =
@@ -555,7 +774,7 @@ async function loadSync(){ try{
   loadGates();
   renderMonthsTbl(d.months||[]);
   renderBatchesTbl(d.batches||[]);
-}catch(e){ log("同步概览失败 "+e.message); } }
+}catch(e){ $("syncBody").textContent="同步状态加载失败："+e.message; $("syncBody").classList.remove("hidden"); log("同步概览失败 "+e.message); } }
 
 /* ---------- 同步页：通用 可排序+分页 表格 ---------- */
 function stZh(s){ return {NORMAL:"正常",ABNORMAL:"异常·已暂停",RETRY_REQUESTED:"待重试",
@@ -668,28 +887,26 @@ function renderBatchesTbl(batches){
 
 /* ---------- 同步前置条件 ---------- */
 async function loadGates(){
-  const g=$("syncGates"); if(!g) return;
+  const g=$("syncGateCards"), foot=$("syncGateStatus"); if(!g||!foot) return;
   g.innerHTML='<div class="dim">正在检查同步前置条件…</div>';
   try{
     const x=(await api("GET","/sync/gates")).data;
-    if(!x.enabled){ g.innerHTML=""; return; }
-    const row=(name,ok,txt)=>'<div class="gc-row"><span class="gc-name">'+name+'</span>'+
-      '<span class="st-badge '+(ok?"NORMAL":"ABNORMAL")+'">'+(ok?"通过":"未通过")+'</span>'+
-      '<span class="gc-txt">'+txt+'</span></div>';
-    g.innerHTML='<div class="sub-head"><b>开始同步前需要满足的条件</b><span class="dim">系统按顺序检查，全部通过才会开始同步</span></div>'+
-      '<div class="gc">'+
-      row("NAS 在线",x.nas_alive,"能连上 NAS（关机 / 网络不通 / 密钥失效都会不通过）")+
-      row("同步目录就绪",x.nas_ready,"NAS 上保存照片的目录存在且可写入")+
-      row("上传处理空闲",x.v1_idle,"没有正在处理或等待归档的上传（上传进行中会等下一轮再同步）")+
-      '<div class="gc-foot">本次检查时间：<b>'+esc(x.checked_at)+'</b> · 待同步的月份：'+x.months_total+' 个 · '+
-      (x.all_ok?'<span class="ok">全部通过，可以正常同步</span>':'<span class="bad">还有条件未满足，系统会等待其通过后再同步</span>')+
-      '</div></div>';
-  }catch(e){ g.innerHTML='<div class="dim bad">条件检查失败：'+esc(e.message)+'</div>'; }
+    if(!x.enabled){ g.innerHTML='<div class="sync-gate-card is-waiting"><span class="sync-gate-icon">!</span><div><h3>同步条件暂不可用</h3><p>请刷新同步概览后重试。</p></div></div>'; foot.classList.add("is-waiting"); foot.textContent="未能读取同步检查状态"; return; }
+    const gate=(title,ok,desc,detail)=>'<article class="sync-gate-card '+(ok?"is-ready":"is-waiting")+'">'+
+      '<span class="sync-gate-icon" aria-hidden="true">'+(ok?"✓":"…")+'</span><div><h3>'+title+'</h3><p>'+desc+'</p><small>'+detail+'</small></div></article>';
+    const idleText=x.v1_idle?"当前没有待归档任务":"存在上传或归档任务，系统会等待空闲后再同步";
+    g.innerHTML=gate("NAS 在线",!!x.nas_alive,"检查 NAS 连接是否可用",x.nas_alive?"连接状态：正常":"连接状态：不可用")+
+      gate("同步目录就绪",!!x.nas_ready,"确认目标目录存在并可写入",x.nas_ready?"目标目录：已就绪":"目标目录：未就绪")+
+      gate("上传处理空闲",!!x.v1_idle,"等待上传与归档任务结束",idleText);
+    foot.classList.toggle("is-waiting",!x.all_ok);
+    foot.innerHTML='<span>'+(x.all_ok?"所有条件均已满足，系统将按计划自动执行同步任务。":"仍有条件未满足，系统会在条件通过后继续检查。")+'</span>'+
+      '<span class="checked-at">上次检查：'+esc(x.checked_at||"—")+' · 待同步月份：'+esc(String(x.months_total??0))+' 个</span>';
+  }catch(e){ g.innerHTML='<div class="sync-gate-card is-waiting"><span class="sync-gate-icon">!</span><div><h3>前置条件检查失败</h3><p>'+esc(e.message)+'</p></div></div>'; foot.classList.add("is-waiting"); foot.textContent="请刷新页面后重试"; }
 }
 const escq=s=>esc(s).replace(/"/g,"&quot;");
 let _msgTimer=null;
-function msgSync(t){ const el=$("syncMsg"); el.textContent=t; el.style.display="block";
-  clearTimeout(_msgTimer); _msgTimer=setTimeout(()=>{ el.style.display="none"; },6000); }
+function msgSync(t){ const el=$("syncMsg"); el.textContent=t; el.classList.remove("hidden");
+  clearTimeout(_msgTimer); _msgTimer=setTimeout(()=>{ el.classList.add("hidden"); },6000); }
 window.tryRetry=async m=>{
   const b=document.querySelector(`button[data-month="${CSS.escape(m)}"]`); if(b) b.disabled=true;
   msgSync("月份 "+m+" 重试请求提交中…");
@@ -706,8 +923,9 @@ async function init(){
   try{const j=await api("GET","/system/status");const d=j.data;
     log("系统：assets="+ (d.counts&&d.counts.assets)+" worker="+(d.worker&&d.worker.status));
     if(Array.isArray(d.allowed_extensions)){ ALLOWED_SUB=fmtAllowed(d.allowed_extensions); applyAllowedSub(); }
-  }catch(e){}
+  }catch(e){log("系统状态读取失败 "+e.message);}
   log("就绪");
+  loadRecent();
 }
 
 const EXT_IMG={jpg:1,jpeg:1,png:1,webp:1,heic:1,heif:1,tif:1,tiff:1};
@@ -736,32 +954,51 @@ function fmtSize(n){
 }
 function fmtType(f){ return (f.name.split(".").pop()||"IMG").toUpperCase(); }
 function notePick(t){ const el=$("pickNote"); if(el) el.textContent=t||""; }
+const pickPreviewUrls=new Map();
+function pickPreviewURL(file){if(!pickPreviewUrls.has(file)&&typeof URL!="undefined"&&URL.createObjectURL)pickPreviewUrls.set(file,URL.createObjectURL(file));return pickPreviewUrls.get(file)||"";}
+function releasePickPreview(file){const u=pickPreviewUrls.get(file);if(u){URL.revokeObjectURL(u);pickPreviewUrls.delete(file);}}
+function releaseAllPickPreviews(){for(const file of pickPreviewUrls.keys())releasePickPreview(file);}
+function makePickPreview(file){
+  const box=document.createElement("div");box.className="pick-preview";
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
+  if(file.type.startsWith("image/")||EXT_IMG[ext]){
+    const img=document.createElement("img");img.alt="";img.loading="lazy";img.src=pickPreviewURL(file);
+    img.onerror=()=>{box.innerHTML='<div class="pick-placeholder"><b>'+esc(fmtType(file))+'</b>浏览器暂不支持预览</div>';};box.appendChild(img);
+  } else if(file.type.startsWith("video/")||EXT_VID[ext]){
+    const video=document.createElement("video");video.muted=true;video.playsInline=true;video.preload="metadata";video.src=pickPreviewURL(file);
+    video.onerror=()=>{box.innerHTML='<div class="pick-placeholder"><b>'+esc(fmtType(file))+'</b>视频预览不可用</div>';};box.appendChild(video);
+  } else box.innerHTML='<div class="pick-placeholder"><b>'+esc(fmtType(file))+'</b>不支持预览</div>';
+  return box;
+}
 function renderPick(){
   const n=pickFiles.length;
   const badge=$("pickBadge"), meta=$("pickMeta"), wrap=$("pickListWrap"), ul=$("pickList");
   const bPre=$("bPre");
+  const uploadMain=document.querySelector("#v-upload .upload-main");
+  if(uploadMain) uploadMain.classList.toggle("has-files",n>0);
   if(!n){
     badge.classList.add("hidden"); meta.classList.add("hidden"); wrap.classList.add("hidden");
     ul.innerHTML="";
     $("pickSub").textContent=ALLOWED_SUB;
-    $("bPre").textContent="检测并上传"; $("bPre").disabled=true;
+    $("bPreLabel").textContent="检测并上传"; $("bPre").disabled=true;
     notePick("");
     return;
   }
   badge.textContent=n; badge.classList.remove("hidden");
-  $("pickSub").textContent="已选择 "+n+" 张 — 可继续点击追加";
-  $("pickInfo").textContent="共 "+n+" 张 · "+fmtSize(pickFiles.reduce((s,f)=>s+f.size,0));
-  $("bPre").textContent="检测并上传（"+n+"）"; $("bPre").disabled=false;
+  $("pickSub").textContent="已选择 "+n+" 个文件 — 可继续点击追加";
+  $("pickInfo").textContent="共 "+n+" 个文件 · "+fmtSize(pickFiles.reduce((s,f)=>s+f.size,0));
+  $("bPreLabel").textContent="检测并上传（"+n+"）"; $("bPre").disabled=false;
   ul.innerHTML="";
   pickFiles.forEach((f,i)=>{
     const li=document.createElement("li");
-    const ico=document.createElement("span"); ico.className="pk-file-ico"; ico.textContent=fmtType(f);
+    const preview=makePickPreview(f);
     const nm=document.createElement("span"); nm.className="pk-name"; nm.textContent=f.name; nm.title=f.name;
     const sz=document.createElement("span"); sz.className="pk-size"; sz.textContent=fmtSize(f.size);
+    const status=document.createElement("span");status.className="pk-status";status.textContent="待检查";
     const del=document.createElement("button"); del.type="button"; del.className="pk-del";
-    del.title="移除该张"; del.textContent="✕";
-    del.onclick=()=>{ pickFiles.splice(i,1); renderPick(); };
-    li.append(ico,nm,sz,del); ul.appendChild(li);
+    del.title="移除该文件"; del.setAttribute("aria-label","移除 "+f.name);del.textContent="×";
+    del.onclick=()=>{ pickFiles.splice(i,1); releasePickPreview(f); renderPick(); };
+    li.append(preview,nm,sz,status,del); ul.appendChild(li);
   });
   meta.classList.remove("hidden"); wrap.classList.remove("hidden");
 }
@@ -778,7 +1015,7 @@ $("files").addEventListener("change",e=>{
   addPick(e.target.files||[]);
   $("files").value="";          // 清空以便再次选择相同文件也能触发
 });
-$("bClearFiles").onclick=()=>{ pickFiles=[]; renderPick(); };
+$("bClearFiles").onclick=()=>{ releaseAllPickPreviews();pickFiles=[];renderPick(); };
 (function(){
   const pk=$("picker");
   ["dragover","dragleave","drop"].forEach(ev=>pk.addEventListener(ev,e=>{
@@ -791,20 +1028,17 @@ $("bClearFiles").onclick=()=>{ pickFiles=[]; renderPick(); };
 })();
 
 /* ---- 上传流程：选择 → 检测/查重 → 传输 → 后台归档 → 结果 ---- */
+function showUploadStage(stage){
+  const active={select:"uploadSelection",duplicate:"Pdup",deleted:"Pdeleted",progress:"Ptx",result:"Pres"}[stage];
+  ["uploadSelection","Pdup","Pdeleted","Ptx","Pres"].forEach(id=>$(id).classList.toggle("hidden",id!==active));
+}
 function enterUpload(){
-  // 忙碌态：隐藏选择卡片与清单，切换到处理进度
-  $("picker").classList.add("hidden");
-  $("pickListWrap").classList.add("hidden");
-  $("pickMeta").classList.add("hidden");
-  $("Pdup").classList.add("hidden"); $("Pres").classList.add("hidden");
-  $("Ptx").classList.remove("hidden");
+  releaseAllPickPreviews();$("phase").textContent="";showUploadStage("progress");
 }
 function resetUpload(){
-  files=[]; pickFiles=[];
-  $("Pdup").classList.add("hidden"); $("Ptx").classList.add("hidden"); $("Pres").classList.add("hidden");
-  $("phase").textContent="—";
-  $("picker").classList.remove("hidden");
-  renderPick();
+  files=[];releaseAllPickPreviews();pickFiles=[];$("phase").textContent="";
+  $("failList").classList.add("hidden");$("failList").innerHTML="";$("resStats").innerHTML="";
+  showUploadStage("select");renderPick();
 }
 $("bPre").onclick=async()=>{
   if(!pickFiles.length){ alert("请先选择照片"); return; }
@@ -824,20 +1058,19 @@ $("bPre").onclick=async()=>{
       const j=await api("POST","/upload-sessions/"+sessionId+"/items/precheck",
         {items:[{client_item_id:Math.random().toString(36).slice(2),filename:it.file.name,file_size:it.file.size}]});
       it.pre=j.data.items[0].precheck_status; it.item_id=j.data.items[0].item_id;
+      it.possibly_deleted=!!j.data.items[0].possibly_deleted;
       $("pg").value=i+1; $("txStage").textContent=(i+1)+" / "+total;
     }
     const dups=files.filter(i=>i.pre==="POSSIBLE_DUPLICATE");
     if(dups.length){
-      $("Ptx").classList.add("hidden");
-      renderDup(dups);
-      $("Pdup").classList.remove("hidden");
+      renderDup(dups);showUploadStage("duplicate");
       $("phase").textContent="发现 "+dups.length+" 张疑似重复，请决定处理方式";
     } else run();
-  }catch(e){ log("预检失败 "+e.message); $("phase").textContent="检测失败："+e.message; resetUpload(); }
+  }catch(e){ log("预检失败 "+e.message); resetUpload();$("phase").textContent="检测失败："+e.message; }
 };
 function renderDup(dups){const tb=$("dupRows");tb.innerHTML="";for(const it of dups){
   const tr=document.createElement("tr");
-  tr.innerHTML="<td>"+esc(it.file.name)+"</td><td>"+it.file.size+"</td><td><button class='ghost'>跳过</button> <button>重新上传</button></td>";
+  tr.innerHTML="<td>"+esc(it.file.name)+(it.possibly_deleted?'<div class="dim">可能与曾删除的照片相似，上传后会按内容再次确认</div>':"")+"</td><td>"+it.file.size+"</td><td><button class='ghost'>跳过</button> <button>重新上传</button></td>";
   const [bS,bR]=[...tr.cells[2].children];
   bS.onclick=async()=>{await conf(it,2);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
   bR.onclick=async()=>{await conf(it,1);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
@@ -850,8 +1083,7 @@ async function conf(it,val){ try{ await api("POST","/upload-items/"+it.item_id+"
 function checkDone(){ return dupPending().length===0; }
 
 async function run(){
-  $("Pdup").classList.add("hidden");
-  $("Ptx").classList.remove("hidden");
+  $("phase").textContent="";showUploadStage("progress");
   const total=files.length; let done=0, skipped=0; const failed=[];
   $("txTitle").textContent="上传照片";
   $("pg").max=total; $("pg").value=0; $("txStage").textContent="0 / "+total; $("stT").textContent="";
@@ -881,8 +1113,7 @@ async function run(){
   await pollSession();
 }
 function failResult(failed, okCnt, skipCnt, total){
-  $("Ptx").classList.add("hidden");
-  $("Pres").classList.remove("hidden");
+  showUploadStage("result");
   const hero=$("resHero"), mark=$("resMark"), h=$("resH"), sub=$("resSub");
   const allFail = okCnt===0;
   hero.className="res-hero "+(allFail?"bad":"dup");
@@ -903,19 +1134,42 @@ function failResult(failed, okCnt, skipCnt, total){
   fl.classList.remove("hidden");
   $("bMore").textContent="返回重新选择";
 }
-async function pollSession(){ const t=Date.now()+120000;
+async function deletedReviewChoice(items){
+  showUploadStage("deleted");
+  $("deletedReviews").innerHTML="";
+  await Promise.all(items.map(it=>new Promise(resolve=>{
+    const row=document.createElement("div");row.className="recycle-review";
+    const title=document.createElement("div");
+    title.textContent=it.original_filename+" · "+(it.lifecycle_state==="TRASHED"?"仍在回收站":"本地文件已过期清理");
+    const keep=document.createElement("button");keep.className="ghost";keep.textContent="保持删除";
+    const restore=document.createElement("button");restore.textContent=it.lifecycle_state==="TRASHED"?"恢复照片":"重新导入";
+    const msg=document.createElement("span");msg.className="dim";
+    async function act(choice){
+      keep.disabled=restore.disabled=true;
+      try{await api("POST","/upload-items/"+it.item_id+"/deleted-decision",{choice});
+        row.remove();resolve();
+      }catch(e){msg.textContent="操作失败："+e.message;keep.disabled=restore.disabled=false;}
+    }
+    keep.onclick=()=>act("keep_deleted");restore.onclick=()=>act("restore");
+    row.append(title,keep,restore,msg);$("deletedReviews").append(row);
+  })));
+  showUploadStage("progress");
+}
+async function pollSession(){ let t=Date.now()+120000;
   while(Date.now()<t){ await new Promise(r=>setTimeout(r,2500));
-    try{ const j=await api("GET","/upload-sessions/"+sessionId); const s=j.data.session;
+    try{
+      const review=(await api("GET","/upload-sessions/"+sessionId+"/deleted-reviews")).data.items;
+      if(review.length){await deletedReviewChoice(review);t=Date.now()+120000;}
+      const j=await api("GET","/upload-sessions/"+sessionId); const s=j.data.session;
       if(["COMPLETED","PARTIAL","FAILED"].includes(s.status)){ summary(s); return; }
       $("txCur").textContent="归档中：状态 "+s.status
         +"（已传 "+s.uploaded_files+" / 重复 "+s.duplicate_files+" / 失败 "+s.failed_files+"）";
       $("txStage").textContent=s.uploaded_files+" 已归档";
-    }catch(_){} }
+    }catch(e){log("归档状态读取失败 session="+sessionId+" "+e.message);$("txCur").textContent="暂时无法读取归档状态，正在重试："+e.message;} }
   summary(null);
 }
 function summary(s){
-  $("Ptx").classList.add("hidden");
-  const P=$("Pres"); P.classList.remove("hidden");
+  showUploadStage("result");
   const hero=$("resHero"), mark=$("resMark"), h=$("resH"), sub=$("resSub");
   if(!s){
     hero.className="res-hero dup"; mark.textContent="…"; h.textContent="归档仍在后台进行";
@@ -940,16 +1194,45 @@ function summary(s){
   $("bMore").textContent="继续上传下一批";
 }
 
-let phState={page:0,size:0,total:0,field:"taken",order:"desc"};
-const PG_SIZES=[12,24,48,96];
+let phState={page:0,size:0,total:0,field:"taken",order:"desc",sourceDevice:"",mimeType:""};
+let photoDeviceNames={};
+let selectedPhotoId=null, photoDetailSeq=0, photoExifExpanded=false;
+const MIME_OPTIONS=["image/jpeg","image/heic","image/heif","image/png","image/webp","video/mp4","video/quicktime"];
+function mimeLabel(v){return ({"image/jpeg":"JPEG","image/heic":"HEIC","image/heif":"HEIF","image/png":"PNG","image/webp":"WebP","video/mp4":"MP4 视频","video/quicktime":"MOV 视频"})[v]||v;}
+async function loadPhotoDevices(){
+  const sel=$("photoDevice"); if(!sel||sel.dataset.loaded) return;
+  try{
+    const data=(await api("GET","/devices")).data.devices||[];
+    photoDeviceNames={}; const opts=['<option value="">全部设备</option>'];
+    data.forEach(d=>{photoDeviceNames[d.id]=d.name;opts.push('<option value="'+escq(d.id)+'">'+esc(d.name)+'</option>');});
+    sel.innerHTML=opts.join(""); sel.dataset.loaded="1";
+    const mime=$("photoMime"); mime.innerHTML=['<option value="">全部类型</option>',...MIME_OPTIONS.map(x=>'<option value="'+x+'">'+mimeLabel(x)+'</option>')].join("");
+  }catch(e){ log("照片筛选设备加载失败 "+e.message); }
+}
+function fmtBytes(n){if(n==null||!Number.isFinite(Number(n)))return "—";const v=Number(n);if(v<1024)return v+" B";const u=["KB","MB","GB","TB"];let x=v/1024,i=0;while(x>=1024&&i<u.length-1){x/=1024;i++;}return x.toFixed(x<10?1:0)+" "+u[i];}
+function recentStatus(s){return ({CREATED:"待处理",PRECHECK:"检测中",UPLOADING:"上传中",PROCESSING:"处理中",COMPLETED:"已完成",FAILED:"有失败",CANCELLED:"已取消"})[s]||s||"未知";}
+function recentTime(v){return v?String(v).replace("T"," ").slice(0,16):"—";}
+async function loadRecent(){
+  const list=$("recentImports"); if(!list) return;
+  list.innerHTML='<tr><td colspan="4" class="dim">正在读取导入记录…</td></tr>';
+  try{
+    await loadPhotoDevices();
+    const data=(await api("GET","/upload-sessions/recent?limit=12")).data;
+    if(!data.sessions.length){list.innerHTML='<tr><td colspan="4" class="dim">还没有导入记录</td></tr>';return;}
+    list.innerHTML=data.sessions.map(s=>{
+      const status=String(s.status||"").toLowerCase();
+      const counts=(s.uploaded_files||0)+" 已归档 · "+(s.duplicate_files||0)+" 重复 · "+(s.failed_files||0)+" 失败";
+      return '<tr><td>'+esc(recentTime(s.created_at))+'</td><td>'+esc(photoDeviceNames[s.source_device]||s.source_device)+'</td><td>'+esc(String(s.total_files||0))+' 项 <span class="recent-counts">'+esc(counts)+'</span></td><td><span class="recent-status '+esc(status)+'">'+esc(recentStatus(s.status))+'</span></td></tr>';
+    }).join("");
+  }catch(e){ list.innerHTML='<tr><td colspan="4" class="bad">最近导入加载失败：'+esc(e.message)+' <button type="button" class="ghost" id="recentRetry">重试</button></td></tr>';const b=$("recentRetry");if(b)b.onclick=loadRecent;log("最近导入加载失败 "+e.message); }
+}
+$("bRecent").onclick=loadRecent;
 /* 按浏览器宽度估算默认每页：列数(≈150px/格) × 6 行，凑到最接近的标准档，使整页为整行 */
 function estPageSize(){
   const w=document.documentElement.clientWidth||window.innerWidth||1000;
-  const cols=Math.max(2,Math.floor(Math.min(w,1300)/156));
-  const n=Math.min(96,Math.max(12,cols*6));
-  let near=PG_SIZES[0];
-  for(const s of PG_SIZES){ near=s; if(s>=n) break; }
-  return near;
+  const galleryWidth=Math.max(360,w-430);
+  const cols=Math.max(2,Math.floor(galleryWidth/154));
+  return Math.min(200,Math.max(12,cols*6));
 }
 function phNextDate(d){ if(!d) return ""; const x=new Date(d+"T00:00:00Z"); x.setUTCDate(x.getUTCDate()+1); return x.toISOString().slice(0,10); }
 function phPages(){ return phState.size? Math.ceil(phState.total/phState.size):1; }
@@ -981,7 +1264,10 @@ document.querySelectorAll(".chip[data-r]").forEach(ch=>{
   };
 });
 ["df","dt"].forEach(id=>$(id).addEventListener("change",()=>setChips(null)));
-async function loadPhotos(page){ try{
+let galleryRequestSeq=0; // 切换模式时废弃旧请求，避免在回收站显示正式照片
+async function loadPhotos(page){
+  const seq=++galleryRequestSeq, mode=recycleMode;
+  try{
   if(page!==undefined) phState.page=phClamp(page);
   const p=phState; p.err=null;
   if(!p.size){ p.size=estPageSize(); }       // 首次进入按窗口宽度估算默认每页
@@ -989,60 +1275,112 @@ async function loadPhotos(page){ try{
   q.set("limit", String(p.size));
   q.set("field", p.field);                    // taken=拍摄时间 / uploaded=上传时间
   q.set("order", p.order);                    // asc/desc
+  p.sourceDevice=$("photoDevice").value||""; p.mimeType=$("photoMime").value||"";
+  if(p.sourceDevice) q.set("source_device",p.sourceDevice);
+  if(p.mimeType) q.set("mime_type",p.mimeType);
   const from=$("df").value||""; const dt=$("dt").value||"";
   const toEx=phNextDate(dt);                  // dt 为用户所选“至（含）”→ 后端 date_to 不含
   if(from) q.set("date_from", from);
   if(toEx) q.set("date_to", toEx);
   if(p.page>0) q.set("offset", String(p.page*p.size));
-  const j=await api("GET","/photos?"+q.toString());
+  const endpoint=mode?"/recycle-bin":"/photos";
+  const j=await api("GET",endpoint+"?"+q.toString());
+  if(seq!==galleryRequestSeq || mode!==recycleMode)return;
   p.total=j.data.total; p.size=j.data.limit;
-  p.page=phClamp(p.page);
+  const adjusted=phClamp(p.page);
+  if(adjusted!==p.page){return loadPhotos(adjusted);}
+  p.page=adjusted;
   const g=$("phGrid"); g.innerHTML="";
   if(!j.data.photos.length){
-    g.innerHTML='<div class="empty-state">（该范围没有照片）</div>';   // 全宽居中，避免缩略图格窄列换行
+    g.innerHTML='<div class="empty-state">'+(mode?"该筛选范围内没有回收站照片":"该筛选范围内没有照片")+'</div>';
+    selectedPhotoId=null; renderPhotoInfo(null);
   }
   for(const ph of j.data.photos){
-    const a=document.createElement("a");
-    a.href=ph.file_url||(API+"/photos/"+ph.id+"/file");
-    a.title=(ph.date_taken||"")+" "+ph.archive_path+"（点击预览原图）";
-    // 点击 → 灯箱预览原图（不再默认下载）
-    a.onclick=ev=>{ ev.preventDefault(); openLbx(ph); };
+    const a=document.createElement("a"); a.href=ph.file_url||(API+"/photos/"+ph.id+"/file");
+    a.className="photo-tile"+(Number(ph.id)===Number(selectedPhotoId)?" selected":""); a.dataset.id=String(ph.id);
+    a.title="点击查看照片"; a.setAttribute("aria-label",(ph.date_taken||"")+" "+(ph.current_filename||"照片"));
+    a.onmouseenter=()=>selectPhoto(ph); a.onfocus=()=>selectPhoto(ph);
+    a.onclick=ev=>{ev.preventDefault();selectPhoto(ph);openLbx(ph);};
     const cap=document.createElement("span"); cap.className="dim"; cap.textContent=(ph.date_taken?ph.date_taken.slice(0,10):"");
     if(isVideoPh(ph)){
-      // 视频：浏览器解码显示首帧（metadata 模式）+ ▶ 角标，无需服务端缩略图
-      const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.preload="metadata";
-      v.src=addInline(ph.file_url||(API+"/photos/"+ph.id+"/file"));
-      v.onerror=()=>markUnav(a);
-      const bd=document.createElement("span"); bd.className="ph-video"; bd.textContent="▶";
-      a.appendChild(v); a.appendChild(bd); a.appendChild(cap); g.appendChild(a);
+      const v=document.createElement("video"); v.muted=true;v.playsInline=true;v.preload="metadata";v.src=addInline(ph.file_url||(API+"/photos/"+ph.id+"/file"));v.onerror=()=>markUnav(a);
+      const bd=document.createElement("span");bd.className="ph-video";bd.textContent="▶";a.appendChild(v);a.appendChild(bd);
     } else {
-      const img=document.createElement("img"); img.loading="lazy";
-      img.alt=ph.current_filename||("photo-"+ph.id); img.src=ph.thumbnail_url||(API+"/photos/"+ph.id+"/thumbnail");
-      // 兜底：加载失败（浏览器不支持该格式/本地缺失）→ 显示“无法预览”占位，不整卡消失
-      img.onerror=()=>markUnav(a);
-      a.appendChild(img); a.appendChild(cap); g.appendChild(a);
+      const img=document.createElement("img");img.loading="lazy";img.alt=ph.current_filename||("photo-"+ph.id);img.src=ph.thumbnail_url||(API+"/photos/"+ph.id+"/thumbnail");img.onerror=()=>markUnav(a);a.appendChild(img);
     }
+    a.appendChild(cap);g.appendChild(a);
   }
-  log("照片列表 page="+(p.page+1)+"/"+Math.max(1,phPages())+" total="+p.total);
-}catch(e){ phState.err=e; log("照片加载失败 "+e.message); }
-finally{ renderPg(); } }
-function renderPg(){
-  const bar=$("pgBar"); if(!bar) return;
-  if(phState.err){ bar.innerHTML='<span class="bad">照片加载失败：'+esc(phState.err.message)+'</span> <button class="ghost" id="pgRetry">重试</button>';
-    const rb=bar.querySelector("#pgRetry"); if(rb) rb.onclick=()=>loadPhotos(); return; }
-  const p=phState, cur=p.page+1, tot=Math.max(1,phPages());
-  const selOpts=PG_SIZES.map(s=>'<option value="'+s+'"'+(s===p.size?' selected':'')+'>'+s+'</option>').join("");
-  bar.innerHTML =
-    '<label class="dim pg-size">每页 <select id="pgSel">'+selOpts+'</select> 张</label>'+
-    '<button class="ghost" id="pgPrev"'+(p.page<=0?' disabled':'')+'>上一页</button>'+
-    '<span class="dim" id="pgInfo">第 '+cur+' / '+tot+' 页 · 共 '+p.total+' 张</span>'+
-    '<button class="ghost" id="pgNext"'+(p.page+1>=tot?' disabled':'')+'>下一页</button>';
-  bar.querySelector("#pgSel").onchange=e=>{ p.size=parseInt(e.target.value,10); p.page=0; loadPhotos(0); };
-  bar.querySelector("#pgPrev").onclick=()=>loadPhotos(p.page-1);
-  bar.querySelector("#pgNext").onclick=()=>loadPhotos(p.page+1);
+  if(j.data.photos.length){
+    const selected=j.data.photos.find(x=>Number(x.id)===Number(selectedPhotoId))||j.data.photos[0];
+    if(Number(selectedPhotoId)!==Number(selected.id)) selectPhoto(selected);
+  }
+  log((mode?"回收站":"照片")+"列表 page="+(p.page+1)+"/"+Math.max(1,phPages())+" total="+p.total);
+}catch(e){if(seq===galleryRequestSeq){phState.err=e;log("照片加载失败 "+e.message);}}
+finally{if(seq===galleryRequestSeq)renderPg();} }
+function dateSourceLabel(v){return ({DateTimeOriginal:"EXIF 拍摄时间",CreateDate:"EXIF 创建时间",file_mtime:"文件修改时间",created_at:"导入时间"})[v]||v||"—";}
+function dimensionFromExif(exif){if(!exif)return "—";const w=exif.ImageWidth||exif.PixelXDimension||exif.ExifImageWidth;const h=exif.ImageLength||exif.ImageHeight||exif.PixelYDimension||exif.ExifImageHeight;return w&&h?(w+" × "+h):"—";}
+function renderPhotoInfo(photo,loading=false,error=""){
+  const box=$("photoInfo");if(!box)return;
+  const prev=box.querySelector("details.info-exif");if(prev)photoExifExpanded=prev.open;
+  if(!photo){box.innerHTML='<div class="photo-info-empty">'+(error?esc(error):"悬停或选择照片查看信息")+'</div>';return;}
+  const src=photo.source_device? (photoDeviceNames[photo.source_device]||photo.source_device):"—";
+  const exif=photo.exif&&typeof photo.exif==="object"?JSON.stringify(photo.exif,null,2):"暂无 EXIF 信息";
+  box.innerHTML='<h3 class="photo-info-title">'+(photo.is_recycled?"回收站照片信息":"照片信息")+'</h3>'+
+    '<dl class="info-list"><dt>文件名</dt><dd>'+esc(photo.current_filename||photo.original_filename||("photo-"+photo.id))+'</dd>'+
+    '<dt>拍摄时间</dt><dd>'+esc(photo.date_taken||"—")+'</dd><dt>文件大小</dt><dd>'+esc(fmtBytes(photo.file_size))+'</dd>'+
+    '<dt>日期来源</dt><dd>'+esc(dateSourceLabel(photo.date_source))+'</dd><dt>来源设备</dt><dd>'+esc(src)+'</dd>'+
+    '<dt>图像尺寸</dt><dd>'+esc(dimensionFromExif(photo.exif))+'</dd><dt>文件类型</dt><dd>'+esc(photo.mime_type||"—")+'</dd>'+
+    '<dt>SHA-256</dt><dd>'+esc(photo.sha256||"—")+'</dd><dt>归档位置</dt><dd>'+esc(photo.archive_path||"—")+'</dd>'+
+    (photo.is_recycled?'<dt>删除时间</dt><dd>'+esc(photo.deleted_at||"—")+'</dd><dt>预计清理</dt><dd>'+esc(photo.expires_at||"—")+'</dd>':"")+'</dl>'+
+    '<details class="info-exif"'+(photoExifExpanded?" open":"")+'><summary>EXIF 信息</summary><pre>'+esc(exif)+'</pre></details>'+
+    (loading?'<div class="dim">正在读取完整信息…</div>':"")+(error?'<div class="dim bad">'+esc(error)+'</div>':"");
+  const details=box.querySelector("details.info-exif");if(details)details.addEventListener("toggle",()=>{photoExifExpanded=details.open;});
+
 }
-$("bPh").onclick=()=>loadPhotos();
+async function selectPhoto(ph){
+  if(!ph)return;selectedPhotoId=Number(ph.id);document.querySelectorAll("#phGrid .photo-tile").forEach(x=>x.classList.toggle("selected",Number(x.dataset.id)===selectedPhotoId));
+  const anchor=[...document.querySelectorAll("#phGrid .photo-tile")].find(x=>Number(x.getAttribute("data-id"))===selectedPhotoId);if(anchor)anchor.classList.add("selected");
+  const seq=++photoDetailSeq;renderPhotoInfo(ph,true);
+  try{const endpoint=ph.is_recycled?"/recycle-bin/":"/photos/";
+    const data=(await api("GET",endpoint+ph.id)).data.photo;
+    if(seq!==photoDetailSeq)return;renderPhotoInfo({...ph,...data});}
+  catch(e){if(seq!==photoDetailSeq)return;renderPhotoInfo(ph,false,"完整信息加载失败："+e.message);log("照片详情加载失败 id="+ph.id+" "+e.message);}
+}
+function renderPg(){
+  const bar=$("pgBar");if(!bar)return;
+  if(phState.err){bar.innerHTML='<span class="bad">照片加载失败：'+esc(phState.err.message)+'</span> <button class="ghost" id="pgRetry">重试</button>';const rb=bar.querySelector("#pgRetry");if(rb)rb.onclick=()=>loadPhotos();return;}
+  const p=phState,cur=p.page+1,tot=Math.max(1,phPages());
+  bar.innerHTML='<div class="pg-left"><label class="dim pg-size">每页 <input id="pgSize" type="number" min="1" max="200" step="1" value="'+p.size+'" aria-label="每页照片数量"> 张</label><span class="dim">共 '+p.total+' 张</span></div>'+
+    '<div class="pg-right"><button class="ghost" id="pgPrev"'+(p.page<=0?' disabled':'')+'>上一页</button><span class="dim" id="pgInfo">'+cur+' / '+tot+'</span><button class="ghost" id="pgNext"'+(p.page+1>=tot?' disabled':'')+'>下一页</button></div>';
+  bar.querySelector("#pgSize").onchange=e=>{const n=parseInt(e.target.value,10);if(!Number.isFinite(n)||n<1||n>200){e.target.value=p.size;return;}p.size=n;p.page=0;loadPhotos(0);};
+  bar.querySelector("#pgPrev").onclick=()=>loadPhotos(p.page-1);bar.querySelector("#pgNext").onclick=()=>loadPhotos(p.page+1);
+}
+let recycleMode=false;
+function updateGalleryMode() {
+  $("galleryTitle").textContent=recycleMode?"回收站":"照片";
+  $("gallerySubtitle").textContent=recycleMode
+    ?"浏览本地回收站的照片，保留期内可恢复，回收站文件不参与 NAS 同步"
+    :"按拍摄时间浏览已归档照片";
+  $("bPh").textContent=recycleMode?"返回照片":"刷新";
+  $("bRecycle").classList.toggle("hidden",recycleMode);
+}
+function switchGalleryMode(trashed) {
+  if(recycleMode===trashed)return;
+  recycleMode=trashed;
+  selectedPhotoId=null;photoDetailSeq++;
+  phState.page=0;phState.total=0;phState.err=null;
+  $("phGrid").innerHTML="";
+  renderPhotoInfo(null);
+  updateGalleryMode();
+  loadPhotos(0);
+}
+$("bRecycle").onclick=()=>switchGalleryMode(true);
+$("bPh").onclick=()=>{
+  if(recycleMode)switchGalleryMode(false);
+  else {loadPhotoDevices();loadPhotos();}
+};
 $("bFilter").onclick=()=>loadPhotos(0);
+["photoDevice","photoMime"].forEach(id=>$(id).addEventListener("change",()=>loadPhotos(0)));
 
 /* ---- 原图/视频预览灯箱（file 端点 inline=1 内联；视频走 <video>，已验证支持 Range） ---- */
 function addInline(u){ return u+(u.indexOf("?")>=0?"&":"?")+"inline=1"; }
@@ -1057,67 +1395,119 @@ function markUnav(anc){
 }
 function isVideoPh(ph){ return (ph.mime_type||"").startsWith("video/")
   || /\.(mp4|mov|m4v|3gp|webm|mkv|avi)$/i.test(ph.current_filename||""); }
+function isHeifPh(ph){ return /heic|heif/i.test(ph.mime_type||"")
+  || /\.(heic|heif)$/i.test(ph.current_filename||""); }
+function fitLbxFrame(){
+  if($("lbx").classList.contains("hidden"))return;
+  const media=$("lbxVid").classList.contains("hidden")?$("lbxImg"):$("lbxVid");
+  const w=media.naturalWidth||media.videoWidth||960,h=media.naturalHeight||media.videoHeight||640;
+  const padding=parseFloat(getComputedStyle($("lbx")).paddingLeft)||0;
+  const maxW=Math.max(1,window.innerWidth-padding*2-18);
+  const maxH=Math.max(1,window.innerHeight-padding*2-$("lbxFrame").querySelector(".lbx-bar").offsetHeight-18);
+  $("lbxFrame").style.width=(Math.min(w,maxW,maxH*w/h)+18)+"px";
+  media.style.maxHeight=maxH+"px";
+}
+window.addEventListener("resize",fitLbxFrame);
+let openedPhoto=null;
+$("lbxDelete").onclick=async()=>{
+  const ph=openedPhoto;
+  if(!ph)return;
+  const recycled=!!ph.is_recycled;
+  const message=recycled
+    ?"将照片恢复至原归档位置？恢复后会重新参与 NAS 同步。"
+    :"将这张照片移入本地回收站？它将停止后续 NAS 同步，但已同步到 NAS 的副本不会被删除。";
+  if(!confirm(message))return;
+  try{
+    await api("POST",recycled?"/recycle-bin/"+ph.id+"/restore":"/photos/"+ph.id+"/trash");
+    closeLbx();selectedPhotoId=null;photoDetailSeq++;
+    await loadPhotos();
+  }catch(e){alert((recycled?"恢复照片":"移入回收站")+"失败："+e.message);}
+};
 function openLbx(ph){
+  openedPhoto=ph;
+  $("lbxDelete").textContent=ph.is_recycled?"恢复照片":"移入回收站";
+  $("lbxDelete").setAttribute("aria-label",ph.is_recycled?"恢复照片":"移入回收站");
+  $("lbxDelete").classList.remove("hidden");
   const vid=$("lbxVid"), img=$("lbxImg");
+  img.dataset.originalFallback="";img.onload=fitLbxFrame;vid.onloadedmetadata=fitLbxFrame;
   $("lbxName").textContent=(ph.date_taken?ph.date_taken.slice(0,10)+" ":"")+(ph.current_filename||("photo-"+ph.id));
   const base=ph.file_url||(API+"/photos/"+ph.id+"/file");
-  $("lbxOpen").href=addInline(base);
   if(isVideoPh(ph)){
     img.classList.add("hidden"); img.removeAttribute("src");
     vid.classList.remove("hidden"); vid.src=addInline(base);
   } else {
     vid.pause(); vid.removeAttribute("src"); vid.classList.add("hidden");
-    img.classList.remove("hidden"); img.src=base;   // <img> 渲染不受 attachment 头影响
-    img.onerror=()=>{ img.onerror=null;
-      const nm=$("lbxName");
-      if(nm&&nm.textContent.indexOf("（")<0) nm.textContent+="（浏览器无法预览该格式：HEIC 等请用 Safari，或点右上“新窗口打开原图”下载查看）"; };
+    img.classList.remove("hidden");
+    // HEIC/HEIF 使用服务端生成的大图 JPEG，其他格式由浏览器内联预览。
+    img.src=(isHeifPh(ph)&&ph.preview_url)?ph.preview_url:base;
+    img.onerror=()=>{
+      if(isHeifPh(ph)&&img.dataset.originalFallback!=="1"){
+        img.dataset.originalFallback="1"; img.src=addInline(base); return;
+      }
+      img.onerror=null; const nm=$("lbxName");
+      if(nm&&nm.textContent.indexOf("（")<0) nm.textContent+="（无法在浏览器中预览）";
+    };
   }
   $("lbx").classList.remove("hidden");
-  document.body.style.overflow="hidden";
+  document.body.style.overflow="hidden";fitLbxFrame();
 }
-function closeLbx(){ $("lbx").classList.add("hidden"); document.body.style.overflow="";
+function closeLbx(){ openedPhoto=null; $("lbx").classList.add("hidden"); document.body.style.overflow="";
   const vid=$("lbxVid"); if(vid) vid.pause(); }
 $("lbxClose").onclick=closeLbx;
-$("lbx").addEventListener("click",e=>{ if(e.target===$("lbx")||e.target===$("lbxImg")) closeLbx(); });
+$("lbx").addEventListener("click",e=>{ if(!$("lbxFrame").contains(e.target)) closeLbx(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&!$("lbx").classList.contains("hidden")) closeLbx(); });
 
-async function loadSys(){ try{ const j=await api("GET","/system/status"); const d=j.data;
-  const c=d.counts||{}; const s=d.storage;
-  const card=(body,wide)=>'<div class="sc'+(wide?" wide":"")+'">'+body+'</div>';
-  const row=(k,v)=>{ const n=v==null?"-":v; return '<div class="sc-row"><span>'+k+'</span><b>'+n+'</b></div>'; };
+function fmtCapacity(bytes){
+  if(bytes==null||!Number.isFinite(Number(bytes))||Number(bytes)<0)return "—";
+  const gb=Number(bytes)>=1024**3,value=Number(bytes)/(gb?1024**3:1024**2);
+  return new Intl.NumberFormat("zh-CN",{maximumFractionDigits:1}).format(value)+" "+(gb?"GB":"MB");
+}
+async function loadSys(){ try{ const j=await api("GET","/system/status"); const d=j.data||{};
+  const c=d.counts||{}, s=d.storage, worker=d.worker||{};
+  const num=v=>v==null||!Number.isFinite(Number(v))?"—":new Intl.NumberFormat("zh-CN").format(Number(v));
+  const row=(label,value)=>'<div><dt>'+label+'</dt><dd>'+value+'</dd></div>';
+  const pill=(label,tone="")=>'<span class="live-status '+tone+'">'+label+'</span>';
+  const workerState=worker.status||"unknown";
+  const workerName={running:"运行中",degraded:"部分异常",not_started:"未启动"}[workerState]||"状态未知";
+  const workerTone=workerState==="running"?"":workerState==="degraded"?"bad":"muted";
   let h="";
-  // 存储卡
   if(s){
-    const lvlName={normal:"正常",warning:"偏满·请注意",critical:"危险",stop:"已满·停止接收"}[s.level]||s.level;
-    const lvlCls={normal:"s-normal",warning:"s-warning",critical:"s-critical",stop:"s-stop"}[s.level]||"s-normal";
-    const mCls={normal:"",warning:"warn",critical:"crit",stop:"stop"}[s.level]||"";
-    h+=card('<h3>存储空间 <span class="state '+lvlCls+'">'+lvlName+'</span></h3>'+
-      '<div class="sc-num">'+s.used_percent+'%</div>'+
-      '<div class="meter '+mCls+'"><i style="width:'+Math.min(100,s.used_percent)+'%"></i></div>'+
-      '<div class="sc-help">已用空间分三档：'+s.thresholds.warning_percent+'%（提醒）、'+s.thresholds.critical_percent+'%（危险）、'+s.thresholds.stop_percent+'%（停止接收新照片）。'+
-      '达到停止档后，新的上传会被拒绝（正在处理的不受影响）。位置：'+(s.path||"-")+'</div>', true);
-  } else {
-    h+=card('<h3>存储空间 <span class="state s-warning">未探测</span></h3><div class="sc-help">无法检查存放照片的磁盘（可能目录未就绪）。</div>', true);
+    const pct=Math.max(0,Math.min(100,Number(s.used_percent)||0));
+    const level=s.level||"unknown";
+    const levelName={normal:"正常",warning:"偏满·请注意",critical:"危险",stop:"已满·停止接收"}[level]||"状态未知";
+    const tone=level==="normal"?"":level==="warning"?"warning":level==="critical"||level==="stop"?"bad":"muted";
+    const thresholds=s.thresholds||{};
+    h+='<section class="system-card system-storage"><h2>存储空间</h2><div class="system-storage-content">'+
+      '<div><p class="system-storage-value">已使用 <strong>'+esc(fmtCapacity(s.used_bytes))+'</strong> / 总计 <strong class="storage-total">'+esc(fmtCapacity(s.total_bytes))+'</strong></p>'+
+      '<div class="system-meter-row"><div class="system-meter '+esc(level)+'"><i style="width:'+pct+'%"></i></div><strong>'+pct.toFixed(pct%1?1:0)+'%</strong></div><p class="storage-available">可用空间 '+esc(fmtCapacity(s.free_bytes))+'</p></div>'+
+      '<div class="system-storage-meta"><span>存储状态</span>'+pill(esc(levelName),tone)+
+      '<p>提醒 '+esc(String(thresholds.warning_percent??"—"))+'% · 危险 '+esc(String(thresholds.critical_percent??"—"))+'% · 停止接收 '+esc(String(thresholds.stop_percent??"—"))+'%</p></div></div></section>';
+  }else{
+    h+='<section class="system-card system-storage"><h2>存储空间</h2><div class="system-storage-content"><p class="dim">当前无法读取存储使用率。</p>'+pill("未探测","warning")+'</div></section>';
   }
-  // Worker 卡
-  h+=card('<h3>后台处理 <span class="state s-normal">运行中</span></h3>'+
-    row("工作方式", "自动定时处理")+
-    '<div class="sc-help">后台会定时把“等待入库”的照片归档进照片库（按内容识别重复照片、读取拍摄时间后归档，不修改原图）。归档是否繁忙请到「照片同步状态」页查看“上传处理空闲”一项。</div>');
-  // 照片数据卡
-  h+=card('<h3>照片数据</h3>'+
-    row("照片总数（含已清理）", c.assets)+
-    row("其中本地已清理", c.assets_missing)+
-    row("等待入库处理", c.pending_upload)+
-    row("正在处理中", c.processing)+
-    row("累计上传批次", c.sessions_total)+
-    '<div class="sc-help">每张照片在库中都有一份唯一记录（用于识别重复照片），即使本地文件已被清理也保留着；「本地已清理」的照片不会在照片页显示（系统清理会自动隐藏；个别外部误删可用维护命令重新核对）。「等待入库处理」＝已上传完成、后台还没归档的数量。</div>');
-  // 服务卡
-  h+=card('<h3>服务</h3>'+
-    row("网页与接口服务", (d.worker&&d.worker.status)==="running"?"运行中":"-")+
-    '<div class="sc-help">网页与上传接口由本服务提供；页面数据均来自实时数据库。</div>');
+  const pending=Number(c.pending_upload)||0, processing=Number(c.processing)||0;
+  h+='<section class="system-card system-processing"><h2>后台处理</h2><dl class="system-kv">'+
+    row("处理程序",pill(esc(workerName),workerTone))+
+    row("处理流程",esc(worker.mode==="threaded-v1-v2"?"自动归档":worker.mode||"—"))+
+    row("等待入库处理",num(c.pending_upload)+" 个文件")+
+    row("正在处理中",num(c.processing)+" 个文件")+
+    '</dl><p class="system-note"><span aria-hidden="true">ⓘ</span><span>上传的照片会按拍摄日期自动归档，保留原始文件，不压缩、不修改。</span></p></section>'+
+    '<section class="system-card system-photo-data"><h2>照片数据</h2><dl class="system-kv">'+
+    row("照片总数（含已清理）",num(c.assets))+
+    row("本地已清理",num(c.assets_missing))+
+    row("等待入库处理",num(c.pending_upload))+
+    row("正在处理中",num(c.processing))+
+    row("累计上传批次",num(c.sessions_total))+
+    '</dl></section>';
+  const dbReady=Object.prototype.hasOwnProperty.call(c,"assets");
+  const refreshed=new Intl.DateTimeFormat("sv-SE",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Shanghai"}).format(new Date());
+  h+='<section class="system-card system-service"><h2>网页与接口服务</h2><div class="system-service-list">'+
+    '<div><span>服务状态</span>'+pill("运行中")+'</div>'+
+    '<div><span>数据库</span>'+pill(dbReady?"正常":"未就绪",dbReady?"":"warning")+'</div>'+
+    '<div><span>最新刷新时间</span><span>'+esc(refreshed)+"</span></div></div></section>";
   $("sysCards").innerHTML=h;
-  log("系统状态刷新");
-}catch(e){ $("sysCards").innerHTML='<div class="bad">系统状态加载失败：'+esc(e.message)+'</div>'; log("系统刷新失败 "+e.message); } }
+  log("系统状态刷新 pending="+pending+" processing="+processing+" worker="+workerState);
+}catch(e){ $("sysCards").innerHTML='<div class="system-card bad">系统状态加载失败：'+esc(e.message)+'</div>'; log("系统刷新失败 "+e.message); } }
 
 (async()=>{ try{await init();}catch(e){ log(e.message); } })();
 </script>

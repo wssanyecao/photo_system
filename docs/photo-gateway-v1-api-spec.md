@@ -660,7 +660,7 @@ file_size
 
 不上传文件内容。
 
-这样可以避免已经成功上传过的照片再次传输到 R5S。
+这样可以避免已经成功上传过的照片再次传输到 legacy-host。
 
 ---
 
@@ -818,7 +818,7 @@ file_size
 
 此时：
 
-> 文件不会进入 R5S。
+> 文件不会进入 legacy-host。
 
 ---
 
@@ -1513,16 +1513,16 @@ V1 支持：
 ```text
 date_from
 date_to
-filename
 source_device
 mime_type
 ```
 
-例如：
+文件名不作为查询条件。`source_device` 表示曾经由该设备上传关联的照片资产；`mime_type` 精确匹配资产的 MIME 类型。示例：
 
 ```http
 GET /api/v1/photos?date_from=2026-01-01&date_to=2026-08-31
-GET /api/v1/photos?source_device=xiaomi14  # 表示曾经从 xiaomi14 上传过的照片资产
+GET /api/v1/photos?source_device=xiaomi14
+GET /api/v1/photos?mime_type=image/jpeg
 ```
 
 ```
@@ -1583,6 +1583,7 @@ GET /api/v1/photos/{photo_id}
       "mime_type": "image/jpeg",
       "date_taken": "2026-08-31 19:32:15",
       "date_source": "DateTimeOriginal",
+      "source_device": "xiaomi14",
       "archive_path": "Photos/2026/202608/IMG_001.jpg",
       "exif": {
         "Make": "Xiaomi",
@@ -1679,24 +1680,24 @@ photo_events
 GET /api/v1/system/status
 ```
 
-响应：
+响应中的 `storage` 描述归档目录所在文件系统（不是照片目录文件大小合计）。2026-10-15 用户批准扩展只读容量字段：`total_bytes`、`used_bytes` 为非负整数字节数；探测失败时为 `null`，不得以 0 伪装真实容量。目录尚不存在时 `storage` 为 `null`。现有百分比、级别、阈值和 Worker/计数字段保持兼容。为兑现用户再次要求的完整系统原型，补齐同一次文件系统探测的 `free_bytes`（当前用户可用字节数，排除文件系统保留空间），探测失败为 `null`；不可简单以 total_bytes-used_bytes 替代。
 
 ```json
 {
   "success": true,
   "data": {
-    "status": "running",
-    "worker": {
-      "status": "idle",
-      "current_item_id": null
-    },
     "storage": {
-      "incoming_available_bytes": 123456789,
-      "incoming_used_bytes": 4567890
+      "path": "<archive-root>",
+      "total_bytes": 107374182400,
+      "used_bytes": 64424509440,
+      "free_bytes": 42949672960,
+      "used_percent": 60.0,
+      "level": "normal",
+      "thresholds": {"warning_percent": 80, "critical_percent": 90, "stop_percent": 95}
     },
-    "database": {
-      "status": "ok"
-    }
+    "counts": {"pending_upload": 0, "processing": 0, "assets": 120, "assets_missing": 0, "sessions_total": 10},
+    "worker": {"status": "running", "mode": "threaded-v1-v2", "threads": {"photo-v1-worker": true}},
+    "allowed_extensions": ["jpg", "png"]
   }
 }
 ```
@@ -2554,6 +2555,7 @@ POST   /api/v1/auth/logout
 GET    /api/v1/devices
 
 POST   /api/v1/upload-sessions
+GET    /api/v1/upload-sessions/recent
 GET    /api/v1/upload-sessions/{id}
 GET    /api/v1/upload-sessions/{id}/items
 GET    /api/v1/upload-sessions/{id}/duplicates
@@ -2799,13 +2801,49 @@ WebUI
 | --- | --- | --- | --- |
 | `limit` | int | 0 | `0` 或缺省 → 使用配置 `webui.photos_page_size`(默认 12)；范围 1..200 |
 | `offset` | int | 0 | 分页偏移 |
-| `date_from` | string | 空 | 起始日期 `YYYY-MM-DD`（含），按 `date_taken` 过滤 |
-| `date_to` | string | 空 | 结束日期 `YYYY-MM-DD`（不含），按 `date_taken` 过滤 |
+| `date_from` | string | 空 | 起始日期 `YYYY-MM-DD`（含），按 `date_taken` 或 `created_at` 过滤 |
+| `date_to` | string | 空 | 结束日期 `YYYY-MM-DD`（不含），按 `date_taken` 或 `created_at` 过滤 |
+| `field` | string | 空 | `taken` / `uploaded`，选择日期与排序字段 |
+| `order` | string | `desc` | `asc` 或 `desc` |
+| `source_device` | string | 空 | 仅含至少一个关联 `upload_items.source_device` 为该值的资产 |
+| `mime_type` | string | 空 | 精确匹配 MIME 类型 |
 
 响应 `data` 增加/保持：`total`(过滤后总数)、`offset`、`limit`(实际使用的每页大小)、`photos[]`。
-排序：`id` 倒序（最新上传优先）。
+排序按 `field` 与 `order` 选择；未指定时按 `id DESC`（最新上传优先）。
 
-## 88.3 缩略图与短期签名预览 URL
+## 88.3 最近上传会话（只读）
+
+```http
+GET /api/v1/upload-sessions/recent?limit=8
+```
+
+返回最近创建的上传会话，按 `created_at DESC, id DESC` 排序。`limit` 缺省为 8，范围 1..50；越界返回 `400 BAD_PARAM`。响应字段仅含会话标识、来源设备、状态、时间和文件计数；不得返回客户端 IP、原始文件系统路径。该接口只读，不改变会话状态或数据库内容，并使用与其他会话接口相同的认证校验。
+
+```json
+{
+  "success": true,
+  "data": {
+    "limit": 8,
+    "sessions": [
+      {
+        "id": "session-id",
+        "source_device": "xiaomi14",
+        "status": "COMPLETED",
+        "created_at": "2026-10-14 10:30:00",
+        "started_at": "2026-10-14 10:30:01",
+        "completed_at": "2026-10-14 10:31:00",
+        "total_files": 12,
+        "uploaded_files": 10,
+        "skipped_files": 1,
+        "duplicate_files": 1,
+        "failed_files": 0
+      }
+    ]
+  }
+}
+```
+
+## 88.4 缩略图与短期签名预览 URL
 
 ### GET /api/v1/photos/{photo_id}/thumbnail
 
@@ -2816,15 +2854,23 @@ WebUI
   （`thumbnails.cache_dir` 默认 `thumbnails`，config-spec §63.3；非正式库，可随时删除重建；不改 photo_assets schema）；
 - 生成失败（Pillow 不支持该格式/损坏）时回退返回原图（见 §51）。
 
+### GET /api/v1/photos/{photo_id}/preview
+
+为 HEIC/HEIF 等浏览器不能原生显示的图片生成大图 JPEG 预览：
+
+- 最长边 2048px、JPEG quality 88、应用 EXIF 方向；原文件不修改；
+- 缓存为 `<storage.root>/<thumbnails.cache_dir>/<asset_id>.preview.jpg`；
+- 生成失败时回退原文件；WebUI 在当前灯箱内尝试内联预览并显示失败状态，不提供单独的原图新窗口入口。
+
 ### 签名预览（<img>/<a> 访问）
 
 由于 V1 认证为 Bearer Token（§6），浏览器原生资源请求无法携带 Authorization 头。扩展规则：
 
-- `GET /api/v1/photos` 响应每项附带 `thumbnail_url` 与 `file_url`，形如
+- `GET /api/v1/photos` 响应每项附带 `thumbnail_url`、`preview_url` 与 `file_url`，形如
   `/api/v1/photos/{id}/thumbnail?preview=<exp>:<sig>`；
 - `preview` = HMAC-SHA256(进程内 secret, `"{asset_id}:{expires}"`)；有效期默认 600 秒；
   `expires` 为 epoch 秒；签名绑定具体 asset_id，不可跨资产串用；
-- `GET /photos/{id}/file` 与 `GET /photos/{id}/thumbnail` 放行规则：
+- `GET /photos/{id}/file`、`GET /photos/{id}/thumbnail` 与 `GET /photos/{id}/preview` 放行规则：
   1. `auth.enabled=false` → 直接放行；
   2. `preview` 签名有效（未过期、asset 匹配）→ 放行；
   3. Bearer Token 有效 → 放行；
@@ -2833,9 +2879,9 @@ WebUI
 > secret 为进程内随机：服务重启后已签发 URL 失效，客户端重新拉取列表即可。签名仅用于只读照片端点，
 > 不替代 §6 认证模型。
 
-## 88.4 缩略图缓存清理（V1.2 追加）
+## 88.5 缩略图缓存清理（V1.2 追加）
 
-缩略图缓存属非正式库（§88.3），serve 维护任务按规则清理过期缓存：
+缩略图缓存属非正式库（§88.4），serve 维护任务按规则清理过期缓存：
 
 - 默认清理 **mtime 超过 90 天**的 `<cache_dir>/*.jpg`；规则经 config-spec §63.3
   `thumbnails.cleanup` 配置（`enabled` / `max_age_days`，默认 `true` / 90 天）；
@@ -2845,14 +2891,14 @@ WebUI
   缓存命中不刷新 mtime，被清理后下次访问自动重建。
 
 ---
-## 88.5 资产本地缺失（soft-missing）与照片列表过滤（V1.3 追加）
+## 88.6 资产本地缺失（soft-missing）与照片列表过滤（V1.3 追加）
 
 `photo_assets` 记录是照片去重身份，不随本地文件删除而删除（db-spec §40 V1.3）。
 本地文件缺失（Cleanup 删除 / 外部删除）时对记录置 `file_missing_at`：
 
 - **`GET /api/v1/photos`**：默认只返回 `file_missing_at IS NULL`（本地文件在）的资产；
   `total` 同步为可展示数量。缺失资产不再出现在照片页（分页/计数均为 SQL 原生）。
-- **`GET /photos/{id}/thumbnail` 与 `/photos/{id}/file`**：原图 FILE_MISSING（404）时，
+- **`GET /photos/{id}/thumbnail`、`/photos/{id}/preview` 与 `/photos/{id}/file`**：原图 FILE_MISSING（404）时，
   顺带清理孤儿缩略图缓存并置 `file_missing_at`（惰性标记，覆盖外部手工删除）；
   已标记资产的后续请求保持 404（不再能生成）。
 - **复活**：同内容（sha256 命中）重新导入缺失资产 → 新文件放回原 `archive_path`、
@@ -2865,3 +2911,7 @@ WebUI
 > WebUI：照片页经以上 API 不再出现破图；`<img>` onerror 仍保留一层兜底隐藏。
 
 ---
+
+## V1.4 附录 — 本地删除 API 扩展（取代 V1“照片删除不提供”的范围约束）
+
+已批准新增 `POST /api/v1/photos/{id}/trash`、`GET /api/v1/recycle-bin`、`POST /api/v1/recycle-bin/{id}/restore`、`GET /api/v1/recycle-bin/{id}/preview`。上传会话新增 `GET /api/v1/upload-sessions/{id}/deleted-reviews` 和 `POST /api/v1/upload-items/{id}/deleted-decision`（`choice=restore|keep_deleted`）。执行鉴权、归档锁、文件路径校验，审计落库。与旧版 V1 禁止照片删除的规则相比，本版仅允许运行主机的**本地回收站**操作，绝不触及 NAS。

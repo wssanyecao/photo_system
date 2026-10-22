@@ -78,3 +78,40 @@ def test_recover_processing_moves_back_and_syncs(tmp_path):
     row = conn.execute("SELECT status FROM upload_items WHERE id=?", (item_id,)).fetchone()
     assert row["status"] == "UPLOADED"
     conn.close()
+
+
+def test_storage_report_includes_filesystem_capacity(monkeypatch, tmp_path):
+    from collections import namedtuple
+    import shutil
+
+    usage = namedtuple("usage", "total used free")(107374182400, 64424509440, 42949672960)
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: usage)
+    report = StorageState(tmp_path).report()
+    assert report["total_bytes"] == 107374182400
+    assert report["used_bytes"] == 64424509440
+    assert report["used_percent"] == 60.0
+    assert report["level"] == "normal"
+
+
+def test_storage_report_does_not_invent_capacity_on_probe_failure(monkeypatch, tmp_path, caplog):
+    import shutil
+
+    def fail(path):
+        raise OSError("disk probe unavailable")
+
+    monkeypatch.setattr(shutil, "disk_usage", fail)
+    report = StorageState(tmp_path).report()
+    assert report["total_bytes"] is None
+    assert report["used_bytes"] is None
+    assert report["free_bytes"] is None
+    assert "disk probe unavailable" in caplog.text
+
+
+def test_storage_report_uses_available_space_not_total_minus_used(tmp_path, monkeypatch):
+    from collections import namedtuple
+    import shutil
+
+    # Available space can exclude filesystem-reserved blocks.
+    usage = namedtuple("usage", "total used free")(107374182400, 64424509440, 41875931136)
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: usage)
+    assert StorageState(tmp_path).report()["free_bytes"] == 41875931136

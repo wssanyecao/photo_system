@@ -11,9 +11,9 @@
 
 ## 1. 文档目的
 
-Photo Gateway V2 在 V1 的基础上增加 NAS 同步、同步任务管理、失败隔离以及 R5S 临时照片目录生命周期管理能力。
+Photo Gateway V2 在 V1 的基础上增加 NAS 同步、同步任务管理、失败隔离以及 legacy-host 临时照片目录生命周期管理能力。
 
-V2 的核心职责是将 R5S `Photos/YYYY/YYYYMM/` 中已经完成 V1 处理的正式照片安全同步至 NAS，并在满足同步成功、保留周期及异常隔离等条件的情况下，清理 R5S 上已经完成生命周期管理的历史照片目录。
+V2 的核心职责是将 legacy-host `Photos/YYYY/YYYYMM/` 中已经完成 V1 处理的正式照片安全同步至 NAS，并在满足同步成功、保留周期及异常隔离等条件的情况下，清理 legacy-host 上已经完成生命周期管理的历史照片目录。
 
 V2 不负责照片上传、照片元数据解析或照片归档，上述功能由 V1 完成。
 
@@ -50,16 +50,16 @@ V2 涉及以下三个主要存储位置：
 | 组件   | 角色          | 主要职责                 |
 | ------ | ------------- | ------------------------ |
 | Client | 数据来源      | 上传照片                 |
-| R5S    | Photo Gateway | 接收、处理并暂存正式照片 |
+| legacy-host    | Photo Gateway | 接收、处理并暂存正式照片 |
 | NAS    | 最终存储      | 保存正式照片             |
 
-R5S 上的正式照片目录固定为：
+legacy-host 上的正式照片目录固定为：
 
 ```text
 /mnt/sda1/photo-gateway/Photos/YYYY/YYYYMM/
 ```
 
-NAS 上的目标目录保持与 R5S 相同的年月结构：
+NAS 上的目标目录保持与 legacy-host 相同的年月结构：
 
 ```text
 <NAS_TARGET_ROOT>/YYYY/YYYYMM/
@@ -68,7 +68,7 @@ NAS 上的目标目录保持与 R5S 相同的年月结构：
 例如：
 
 ```text
-R5S:
+legacy-host:
 /mnt/sda1/photo-gateway/Photos/2026/202604/
 
 NAS:
@@ -229,9 +229,9 @@ NAS Ready = PASS
 
 # 9. Difference Check
 
-Difference Check 用于确定当前 R5S 上哪些 `YYYYMM` 目录存在尚未同步至 NAS 的内容。
+Difference Check 用于确定当前 legacy-host 上哪些 `YYYYMM` 目录存在尚未同步至 NAS 的内容。
 
-Difference Check 必须以 R5S 当前实际文件状态与 NAS 当前实际文件状态为依据。
+Difference Check 必须以 legacy-host 当前实际文件状态与 NAS 当前实际文件状态为依据。
 
 V2 不得仅根据历史 Sync Task 判断某个月份是否需要同步。
 
@@ -542,7 +542,7 @@ NORMAL
 
 则按照正常规则处理。
 
-ABNORMAL 月份可以继续存在于 R5S `Photos/` 中，但必须保持自动处理隔离状态。
+ABNORMAL 月份可以继续存在于 legacy-host `Photos/` 中，但必须保持自动处理隔离状态。
 
 ---
 
@@ -617,12 +617,12 @@ Batch 中的 Sync Task 按顺序执行。
 
 # 19. Rsync 安全要求
 
-V2 使用 R5S → NAS 的单向同步模型。
+V2 使用 legacy-host → NAS 的单向同步模型。
 
 方向固定为：
 
 ```text
-R5S → NAS
+legacy-host → NAS
 ```
 
 V2 禁止使用：
@@ -631,11 +631,11 @@ V2 禁止使用：
 rsync --delete
 ```
 
-或任何可能根据 R5S 状态删除 NAS 文件的等效操作。
+或任何可能根据 legacy-host 状态删除 NAS 文件的等效操作。
 
-R5S 上文件的删除只由 V2 Cleanup 阶段执行。
+legacy-host 上文件的删除只由 V2 Cleanup 阶段执行。
 
-NAS 是正式照片存储位置，因此同步过程中不得因为 R5S 文件缺失而删除 NAS 上的对应文件。
+NAS 是正式照片存储位置，因此同步过程中不得因为 legacy-host 文件缺失而删除 NAS 上的对应文件。
 
 ---
 
@@ -759,7 +759,7 @@ ABNORMAL 表示：
 - 不得自动创建新的 Sync Task；
 - 不得加入新的 Sync Batch；
 - 不得执行 Cleanup 删除；
-- 必须保留 R5S 上的原始目录；
+- 必须保留 legacy-host 上的原始目录；
 - 历史 Sync Task 必须保留；
 - 历史 Month State 必须保留；
 - WebUI 应明确显示异常原因及最近失败记录。
@@ -985,7 +985,7 @@ Cleanup Check
 
 # 28. Cleanup 检查范围
 
-Cleanup 必须扫描 R5S 正式照片目录下的所有年月目录：
+Cleanup 必须扫描 legacy-host 正式照片目录下的所有年月目录：
 
 ```text
 Photos/YYYY/YYYYMM/
@@ -999,7 +999,7 @@ Cleanup 不仅检查本轮 Sync Batch 中的月份。
 本轮 Batch：
 202608
 
-R5S 当前存在：
+legacy-host 当前存在：
 202604
 202605
 202606
@@ -1243,7 +1243,7 @@ NAS Ready Check
 
 Cleanup 阶段不再重复执行 NAS Alive Check 或 NAS Ready Check。
 
-Cleanup 的删除对象是 R5S 本地：
+Cleanup 的删除对象是 legacy-host 本地：
 
 ```text
 Photos/YYYY/YYYYMM/
@@ -1336,7 +1336,7 @@ Batch 仅用于描述一次同步批次及其结果，不承担月份异常隔�
 | id            | INTEGER  | Task 主键                      |
 | batch_id      | INTEGER  | 所属 Batch                     |
 | archive_month | TEXT     | `YYYYMM`                       |
-| source_path   | TEXT     | R5S 源目录                     |
+| source_path   | TEXT     | legacy-host 源目录                     |
 | target_path   | TEXT     | NAS 目标目录                   |
 | status        | TEXT     | PENDING/RUNNING/SUCCESS/FAILED |
 | started_at    | DATETIME | 开始时间                       |
@@ -1516,11 +1516,11 @@ sync:
 | `nas.ssh_user`                  | NAS 同步账号              |
 | `nas.ssh_key`                   | SSH 私钥                  |
 | `nas.target_root`               | NAS Photo Root            |
-| `source.root`                   | R5S Photo Root            |
+| `source.root`                   | legacy-host Photo Root            |
 | `worker.cycle_interval_seconds` | Cycle 间隔                |
 | `failure.threshold`             | 连续失败阈值              |
 | `cleanup.enabled`               | 是否启用 Cleanup          |
-| `cleanup.synced_retention_days` | 同步成功后的 R5S 保留时间 |
+| `cleanup.synced_retention_days` | 同步成功后的 legacy-host 保留时间 |
 
 ---
 
@@ -2116,7 +2116,13 @@ V1 与 V2 之间通过正式照片目录及 V1 数据库状态进行协作，但
 - 某月份只有在当前 Month State 为 NORMAL、最新 Sync Task 为 SUCCESS 且达到保留周期时才能删除；
 - 某个月份的同步失败不得阻止其他月份 Cleanup；
 - 删除前不重复检查 NAS；
-- R5S Cleanup 不得通过 `rsync --delete` 影响 NAS；
+- legacy-host Cleanup 不得通过 `rsync --delete` 影响 NAS；
 - 所有 Sync Task 历史和 Month State 历史必须长期保留。
 
 该模型将**同步调度、同步执行历史、月份状态历史、异常隔离和本地生命周期管理**明确分离，可作为 Photo Gateway V2 的正式实现基线。
+
+## V1.4 附录 — 回收站与 NAS 单向同步边界
+
+V2 继续仅扫描源端 `Photos/YYYY/YYYYMM`，回收站 `recycle_bin` 和待审核目录 `review_pending` 均不在源端。删除和恢复复用 V1/V2 归档锁，服务启动前先对账中断的本地文件移动。NAS 同步仍不得使用 `rsync --delete`，已同步照片在本地回收站操作后仍保留在 NAS。
+
+安全追加：若某月照片在最近一次 Sync Task SUCCESS 之后经过回收站恢复或重新导入，该月不得进入 CLI Cleanup 删除候选，直至后续再次成功完成同步。该规则保守阻止误删，不修改 NAS。

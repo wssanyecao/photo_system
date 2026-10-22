@@ -1,4 +1,4 @@
-"""V2 真实传输适配：RFC R5S→NAS 单向 rsync over SSH（对齐 v2-spec §8·18-20）。
+"""V2 真实传输适配：RFC legacy-host→NAS 单向 rsync over SSH（对齐 v2-spec §8·18-20）。
 
 - 方向固定单向；任何路径不得追加 `--delete` 等可能清理 NAS 的开关（§19）。
 - nas.ready/alive 通过 ssh BatchMode 探测；Difference 使用 rsync `-rtn`(dry-run) 计差异（§9 建议 dry-run）。
@@ -27,10 +27,17 @@ class RsyncNas:
         self._rsync = shutil.which("rsync") or "rsync"
 
     # --- 小工具 ---
+    def _host_key_args(self) -> list[str]:
+        if not self.nas.known_hosts:
+            return []
+        return ["-o", "StrictHostKeyChecking=yes",
+                "-o", f"UserKnownHostsFile={self.nas.known_hosts}"]
+
     def _ssh_base(self) -> list[str]:
         args = ["ssh", "-p", str(self.nas.ssh_port), "-i", self.nas.ssh_key,
                 "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
                 "-o", "ControlMaster=no",     # 禁用 ControlMaster：不依赖/绑定 ~/.ssh/con-* socket
+                *self._host_key_args(),
                 f"{self.nas.ssh_user}@{self.nas.host}"]
         return args
 
@@ -42,7 +49,7 @@ class RsyncNas:
         """
         return ["ssh", "-p", str(self.nas.ssh_port), "-i", self.nas.ssh_key,
                 "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                "-o", "ControlMaster=no"]
+                "-o", "ControlMaster=no", *self._host_key_args()]
 
     def _target_remote(self, rel: str) -> str:
         # remote = user@host:/.../Photos/YYYY/YYYYMM

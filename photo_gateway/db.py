@@ -195,6 +195,24 @@ CREATE INDEX idx_v2_state_month  ON photo_sync_month_states (archive_month, crea
 ALTER TABLE photo_assets ADD COLUMN file_missing_at TEXT;
 """,
     ),
+    (
+        4,
+        """
+ALTER TABLE photo_assets ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'ACTIVE'
+ CHECK (lifecycle_state IN ('ACTIVE','TRASHED','PURGED'));
+ALTER TABLE photo_assets ADD COLUMN deleted_at TEXT;
+ALTER TABLE photo_assets ADD COLUMN purged_at TEXT;
+CREATE INDEX idx_photo_assets_lifecycle ON photo_assets(lifecycle_state, deleted_at);
+CREATE TABLE photo_recycle_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ asset_id INTEGER NOT NULL REFERENCES photo_assets(id),
+ action TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX idx_photo_recycle_events_asset ON photo_recycle_events(asset_id, id);
+
+""",
+    ),
 ]
 
 
@@ -257,6 +275,28 @@ def init_db(path: str | Path) -> sqlite3.Connection:
     conn = connect(p)
     migrate(conn)
     return conn
+
+
+def backup_database(conn: sqlite3.Connection, destination: str | Path) -> Path:
+    """使用 SQLite Online Backup API 生成一致性备份并校验结果。"""
+    target = Path(destination).expanduser()
+    if target.exists():
+        raise DbError(f"备份目标已存在，拒绝覆盖: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        out = sqlite3.connect(str(target))
+        try:
+            conn.backup(out)
+            row = out.execute("PRAGMA integrity_check").fetchone()
+            if row is None or row[0] != "ok":
+                raise DbError(f"备份完整性校验失败: {row[0] if row else 'no result'}")
+        finally:
+            out.close()
+    except Exception:
+        # 失败产物不是可恢复备份，避免被运维误用。
+        target.unlink(missing_ok=True)
+        raise
+    return target
 
 
 def _now_str() -> str:

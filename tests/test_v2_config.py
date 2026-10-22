@@ -60,3 +60,18 @@ def test_sync_bad_retention():
         _core(sync={"enabled": True, "nas": {"host": "h", "ssh_user": "u",
                                              "ssh_key": "/k", "target_root": "/p"},
                     "cleanup": {"synced_retention_days": 0}})
+
+
+def test_sync_source_root_override_is_resolved():
+    cfg = _core(sync={"enabled": False, "source": {"root": "/data/import/Photos"}})
+    assert str(cfg.resolved_sync_source()) == "/data/import/Photos"
+
+
+def test_sync_source_defaults_to_storage_archive():
+    cfg = _core(sync={"enabled": False})
+    assert str(cfg.resolved_sync_source()) == "/tmp/pg/Photos"
+
+
+def test_sync_source_root_must_be_absolute():
+    with pytest_raises(ConfigError, "绝对路径"):
+        _core(sync={"enabled": False, "source": {"root": "relative/Photos"}})

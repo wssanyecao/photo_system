@@ -70,9 +70,24 @@ class StorageState:
         self.stop = stop
 
     def report(self, use_override: float | None = None) -> dict:
-        pct = usage_percent(self.path) if use_override is None else use_override
+        import logging
+        import shutil
+
+        total_bytes = used_bytes = free_bytes = None
+        try:
+            usage = shutil.disk_usage(self.path)
+            total_bytes, used_bytes, free_bytes = usage.total, usage.used, usage.free
+            pct = usage.used * 100.0 / usage.total if usage.total > 0 else 0.0
+        except OSError as exc:
+            logging.getLogger(__name__).warning("storage capacity probe failed path=%s: %s", self.path, exc)
+            pct = 0.0  # Preserve the existing percentage/threshold fallback.
+        if use_override is not None:
+            pct = use_override
         return {
             "path": str(self.path),
+            "total_bytes": total_bytes,
+            "used_bytes": used_bytes,
+            "free_bytes": free_bytes,
             "used_percent": round(pct, 2),
             "level": disk_level(pct, self.warning, self.critical, self.stop),
             "thresholds": {

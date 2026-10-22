@@ -96,7 +96,7 @@
 | id | INTEGER PK | 任务 ID | |
 | batch_id | INTEGER | 所属批次 | FK→photo_sync_batches.id |
 | archive_month | TEXT | 归档月份 | `YYYYMM`（不唯一：同月允许多次 Task） |
-| source_path / target_path | TEXT | 源(R5S)/目标(NAS)目录 | |
+| source_path / target_path | TEXT | 源(legacy-host)/目标(NAS)目录 | |
 | status | TEXT | 任务状态 | PENDING/RUNNING/SUCCESS/FAILED |
 | started_at / completed_at | TEXT | 执行时间 | |
 | exit_code | INTEGER | rsync 退出码 | |
@@ -117,3 +117,11 @@
 | created_at / updated_at | TEXT | 创建/更新时间 | |
 
 当前状态语义 = 同 `archive_month` 下 `ORDER BY created_at DESC, id DESC LIMIT 1`（历史不得改写/删除）。
+
+## V1.4 回收站字段
+
+- `photo_assets.lifecycle_state`：ACTIVE/TRASHED/PURGED 用户主动删除生命周期
+- `photo_assets.deleted_at`：进入回收站的时间，决定默认 30 天保留期
+- `photo_assets.purged_at`：本地实体永久清理时间（SHA 身份仍保留）
+- `photo_recycle_events`：asset_id/action/created_at 追加式审计
+- `upload_items.status=REVIEW_REQUIRED`：上传同 SHA 曾删除照片后等待人工决策

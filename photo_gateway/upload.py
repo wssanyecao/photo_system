@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sqlite3
@@ -20,6 +21,10 @@ from pathlib import Path
 
 from .config import V1Config
 from .security import PgApiError
+
+# 不占用 LoggingManager 的 `photo_gateway.upload` 正式结构化日志域；本模块可能在
+# LoggingManager.configure() 前导入。
+_LOG = logging.getLogger("photo_gateway.upload_fallback")
 
 # 上传允许码/原因
 _UPLOAD_ALLOW_PRECHECK = {"NO_MATCH"}
@@ -54,7 +59,8 @@ def disk_allows_write(target: Path, stop_percent: int) -> bool:
     """目标所在磁盘使用率 < stop_percent 才允许写入。"""
     try:
         usage = shutil.disk_usage(target)
-    except OSError:
+    except OSError as exc:
+        _LOG.warning("disk usage probe failed target=%s: %s", target, exc, exc_info=True)
         return True  # 无法探测(如 tmp 目录)时放行，避免误封
     percent = usage.used * 100.0 / usage.total
     return percent < stop_percent

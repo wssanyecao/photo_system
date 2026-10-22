@@ -3,7 +3,7 @@
 **项目名称：Photo Gateway**  
 **版本：V1.1（在 V1.0 基础上含已批准行为扩展，见 §48）**  
 **状态：冻结基线（Frozen Baseline）**  
-**目标平台：FriendlyElec NanoPi R5S / ImmortalWrt 24.10.5**
+**目标平台：FriendlyElec embedded gateway legacy-host / ImmortalWrt 24.10.5**
 
 ---
 
@@ -13,7 +13,7 @@
 
 V1 的目标是完成：
 
-> **局域网照片上传 → R5S 本地接收 → 重复检测 → 元数据提取 → 按日期归档 → 提供任务状态查询。**
+> **局域网照片上传 → legacy-host 本地接收 → 重复检测 → 元数据提取 → 按日期归档 → 提供任务状态查询。**
 
 V1 不负责 NAS 同步。
 
@@ -44,7 +44,7 @@ Windows
         ▼
 ┌─────────────────────────────┐
 │       Photo Gateway         │
-│          NanoPi R5S         │
+│          embedded gateway legacy-host         │
 │                             │
 │ WebUI                       │
 │ Upload API                  │
@@ -62,7 +62,7 @@ Windows
 V1 结束后：
 
 ```text
-R5S
+legacy-host
 └── Photos/
     ├── 2004/
     │   ├── 200401/
@@ -120,7 +120,7 @@ V1 不应该因为未来需要 NAS，而在当前代码中提前加入 NAS 探�
 设备：
 
 ```text
-FriendlyElec NanoPi R5S
+FriendlyElec embedded gateway legacy-host
 ```
 
 系统：
@@ -153,13 +153,13 @@ USB 3.0
 
 该硬盘：
 
-> 只作为 R5S 本地照片存储，不视为可靠备份。
+> 只作为 legacy-host 本地照片存储，不视为可靠备份。
 
 ---
 
 # 5. V1 存储目录
 
-R5S：
+legacy-host：
 
 ```text
 /mnt/sda1/photo-gateway/
@@ -232,7 +232,7 @@ failed/
 
 ## 5.4 Photos
 
-R5S 上的正式照片目录：
+legacy-host 上的正式照片目录：
 
 ```text
 Photos/
@@ -255,7 +255,7 @@ Photos/YYYY/YYYYMM/
 
 注意：
 
-> 当前阶段该目录位于 R5S。
+> 当前阶段该目录位于 legacy-host。
 
 后续 NAS 阶段再将其同步到 NAS。
 
@@ -421,7 +421,7 @@ EXIF 日期优先级
 ### 存储
 
 ```text
-R5S 根目录
+legacy-host 根目录
 incoming
 processing
 failed
@@ -749,7 +749,7 @@ Web 上传请求可以根据配置允许一定并发。
 
 ### Processing
 
-照片进入 R5S 后：
+照片进入 legacy-host 后：
 
 ```text
 Worker 1
@@ -769,7 +769,7 @@ Worker 1
 
 逐个处理。
 
-这样可以避免 R5S 同时进行大量：
+这样可以避免 legacy-host 同时进行大量：
 
 ```text
 SHA256
@@ -1418,7 +1418,7 @@ PROCESSING
 
 # 34. 重启恢复
 
-R5S 重启后执行 Recovery。
+legacy-host 重启后执行 Recovery。
 
 ---
 
@@ -1492,7 +1492,7 @@ max_age_days: 7
 
 # 36. 磁盘保护
 
-R5S 临时硬盘容量有限，因此 V1 必须监控磁盘空间。
+legacy-host 临时硬盘容量有限，因此 V1 必须监控磁盘空间。
 
 配置：
 
@@ -1897,7 +1897,7 @@ SHA256 不同
 → 可以重新进入失败任务
 ```
 
-### 场景 7：R5S 重启
+### 场景 7：legacy-host 重启
 
 ```text
 重启
@@ -1998,7 +1998,7 @@ SHA-256
 
 以下内容作为 V1 冻结基线：
 
-1. **V1 只处理 R5S 本地照片接收和归档。**
+1. **V1 只处理 legacy-host 本地照片接收和归档。**
 2. **V1 不处理 NAS。**
 3. **V1 不进行 NAS 探测。**
 4. **V1 不运行 rsync。**
@@ -2020,7 +2020,7 @@ SHA-256
 20. V1 必须实现结构化日志。
 21. 日志必须轮转并支持保留策略。
 22. 数据库保存当前状态，日志保存过程。
-23. R5S 重启后必须执行任务恢复。
+23. legacy-host 重启后必须执行任务恢复。
 24. `.tmp` 默认 7 天自动清理。
 25. 磁盘达到 95% 后停止新的上传。
 26. V1 不实现视频。
@@ -2055,7 +2055,7 @@ SHA-256
                               │
                     ┌─────────┴─────────┐
                     │  Photo Gateway    │
-                    │      R5S          │
+                    │      legacy-host          │
                     │                   │
                     │ 上传 / 去重 / EXIF │
                     │ 本地归档 / 日志    │
@@ -2135,5 +2135,11 @@ AI
   - `photo_gateway backfill-exif --config <cfg>`：为 `exif_json` 为空的存量资产补录 EXIF。
 - 说明：EXIF 日期来自读操作不改原始内容；磁盘 mtime 不属于照片内容，因此不违反 §32/§33 原始文件保护。
 
----
+## 48.3 SQLite 一致性备份（V1.4 追加）
 
+- `python -m photo_gateway db-backup --config <cfg> [--output <path>]` 使用 SQLite Online Backup API
+  生成新的单文件一致快照；快照包含源库已提交的 WAL 事务，不依赖手工复制 `-wal`、`-shm`。
+- 默认输出为 `<storage.root>/backups/photo-gateway-YYYYMMDD-HHMMSS.db`；目标已存在时拒绝覆盖。
+- 备份操作不修改源 `.db`、`-wal`、`-shm`，也不等同于跨设备灾难恢复；输出必须完成完整性校验并另存至独立存储。
+
+---
