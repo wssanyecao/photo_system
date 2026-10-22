@@ -119,7 +119,7 @@ def create_app(cfg, db_conn=None, db_path=None, dirs=None, logman=None) -> FastA
             if workers is not None:
                 workers.stop()
 
-    app = FastAPI(title="Photo Gateway V1", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="Photo Gateway", version=__version__, lifespan=lifespan)
     from .preview_sign import new_secret
     app.state.pg = {"cfg": cfg, "store": store, "db": db_conn, "db_path": db_path,
                     "dirs": dirs, "logman": logman,

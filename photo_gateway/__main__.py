@@ -167,7 +167,7 @@ def _cmd_cleanup(cfg_path: Path, apply: bool = False, yes: bool = False) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="photo-gateway",
-        description="Photo Gateway V1 — 家庭照片导入网关",
+        description="Photo Gateway — 家庭照片导入网关",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")

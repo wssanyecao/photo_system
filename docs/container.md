@@ -19,6 +19,7 @@ cp deploy/compose/config.example.yaml config/config.yaml
 ## 启动
 
 ```bash
+# 正式版本部署前，在 .env 设置 PHOTO_IMAGE_TAG 为经过批准的版本号
 docker compose --env-file .env -f compose.yaml build
 docker compose --env-file .env -f compose.yaml up -d --no-build
 docker compose --env-file .env -f compose.yaml ps
@@ -39,7 +40,11 @@ docker compose --env-file .env -f compose.yaml exec -T photo-gateway \
   python -m photo_gateway db-backup --config /etc/photo-gateway/config.yaml
 ```
 
-将备份复制到独立存储，并保留原镜像、原配置和数据库快照。更新镜像后再启动新版本。程序可能在启动时自动迁移 SQLite schema，**不要直接用旧版本镜像打开已经迁移的新数据库**；回滚时应配套恢复升级前的数据库备份，并妥善保留升级期间新增的文件。
+将备份复制到独立存储，并保留原镜像、原配置和数据库快照。更新镜像后再启动新版本。
+
+**兼容性提醒：** 带有本地回收站功能的代码会在首次初始化时将 SQLite 升级到 **schema v4**（包含回收站状态与删除审计）。升级之前须对现有数据库执行在线一致性备份、检查备份完整性并单独保留；仅留在同一数据盘的快照不足以抵御磁盘故障。
+
+**回滚：** 不得让旧应用版本直接打开已迁移到 v4 的 SQLite 数据库。需停止服务、保全升级期间新增的数据，再配套恢复升级前的数据库快照、旧配置和旧镜像；升级期间新上传的文件不会自动合并回旧数据库，必须单独核对和处理。不要以回滚脚本直接覆盖正式数据。
 
 NAS 同步不会删除目标文件；本地回收站默认 30 天后清理实体文件，且不接触 NAS。涉及文件清理前请先确认备份完整性。
 

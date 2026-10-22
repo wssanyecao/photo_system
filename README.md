@@ -118,7 +118,11 @@ python -m pytest tests -q
 
 ## 更新记录
 
-功能更新摘要参见 [CHANGELOG.md](CHANGELOG.md)。
+源码自报版本以 `python -m photo_gateway --version` 为准。**`main` 是持续更新的代码，不等同于正式稳定版本**；安装时请优先选择 [GitHub Releases](https://github.com/wssanyecao/photo_system/releases) 列出的已验证版本。如果暂时没有 Release，表示尚未建立正式软件版本。
+
+- [更新记录](CHANGELOG.md)：按正式版本维护用户可感知的新增与修复
+- [版本发布说明](docs/release.md)：版本规则、自动检查与正式发布流程
+- [升级与回滚注意事项](docs/container.md#升级与数据保护)：数据库迁移前必须备份，应用发布与生产升级分别执行
 
 ## 许可证
 
