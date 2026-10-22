@@ -7,8 +7,7 @@
   api-spec §6 明示"Session Token 不再从配置文件读取"，可用内存存储；跨重启失效可接受，
   记为改进点(可后续持久化)。
 - 不引入用户表/RBAC（api-spec §6）。
-历史注记：authentic 具体 hash 算法 spec 标"推荐 Argon2id"而非冻结；
-本实现采用 stdlib scrypt(免额外依赖)，凭据格式可迁移。
+使用 Python 标准库 scrypt 实现口令哈希，不引入额外密码学依赖。
 """
 
 from __future__ import annotations

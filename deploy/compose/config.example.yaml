@@ -53,7 +53,7 @@ thumbnails:
     enabled: true
     max_age_days: 90
 
-# 首次校验先保持 false；NAS key/known_hosts/路由验证后再启用。
+# NAS 同步可选；确认 SSH、主机指纹与目标目录后再启用。
 sync:
   enabled: false
   nas: {}

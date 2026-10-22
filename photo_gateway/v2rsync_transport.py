@@ -1,4 +1,4 @@
-"""V2 真实传输适配：RFC legacy-host→NAS 单向 rsync over SSH（对齐 v2-spec §8·18-20）。
+"""V2 真实传输适配：本地归档→NAS 单向 rsync over SSH（对齐 v2-spec §8·18-20）。
 
 - 方向固定单向；任何路径不得追加 `--delete` 等可能清理 NAS 的开关（§19）。
 - nas.ready/alive 通过 ssh BatchMode 探测；Difference 使用 rsync `-rtn`(dry-run) 计差异（§9 建议 dry-run）。

@@ -1,4 +1,4 @@
-"""Worker 阶段4 测试：归档新照片 / SHA 去重 / 文件名冲突递增。"""
+"""Worker 归档测试：归档新照片 / SHA 去重 / 文件名冲突递增。"""
 
 from __future__ import annotations
 

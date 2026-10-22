@@ -1,13 +1,7 @@
-"""V1 配置加载与校验。
+"""应用配置的 YAML 加载与校验。
 
-实现依据：`docs/photo-gateway-v1-config-spec.md` (Status: Frozen Baseline)。
-
-设计要点（对应 spec §2 / §3）：
-- 格式：YAML（spec §2，非 TOML）。
-- 所有业务默认值必须显式声明（§3.2）→ 见各 Field(default=...)。
-- 未知配置项默认拒绝（§3.3）→ Pydantic `extra="forbid"`。
-- 启动时必须完整校验，任何致命错误不得启动（§3.4）→ `load_config()` 抛异常。
-- 配置(应该怎么运行)与 SQLite 状态(运行到哪)分离（§3.1）：本模块不触任何运行时状态。
+业务默认值在 Pydantic Schema 中声明；未知字段拒绝，配置校验失败时禁止启动。
+配置定义预期运行方式，SQLite 数据库存储运行状态。
 """
 
 from __future__ import annotations
@@ -178,8 +172,8 @@ class _ProcessingConfig(BaseModel):
     @classmethod
     def _validate_worker_count(cls, v: int) -> int:
         if v != 1:
-            # v1-spec §42 / spec 冻结：默认单 worker、顺序处理；当前只支持 1
-            raise ValueError("processing.worker_count 当前仅支持 1 (V1 单 worker 冻结)")
+            # 当前处理引擎只支持单 Worker 顺序归档
+            raise ValueError("processing.worker_count 当前仅支持 1")
         return v
 
 

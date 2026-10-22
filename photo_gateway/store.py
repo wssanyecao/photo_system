@@ -7,7 +7,7 @@
 - precheck_status(§29)：NOT_CHECKED/NO_MATCH/POSSIBLE_DUPLICATE
 - 批量 Precheck 幂等 (session_id, client_item_id)（§20/22 API + §22 db 唯一键）
 - Precheck 命中 = 曾出现相同 (device,filename,size) 且结果 COMPLETED/DUPLICATE（§33/§34）→ 不命中 FAILED
-- 文件在 Precheck 阶段仅存元数据，不进 legacy-host（§28）；只有命中用户确认(→UPLOADING)或 NO_MATCH 后进入上传。
+- 文件在 Precheck 阶段仅存元数据，不写入正式归档（§28）；只有命中用户确认(→UPLOADING)或 NO_MATCH 后进入上传。
 """
 
 from __future__ import annotations

@@ -1,301 +1,125 @@
-# Photo Gateway（照片网关）
+# Photo Gateway
 
-把手机、相机里的照片，**自动收进你自己家里的设备上整理归档，并把正式副本同步到 NAS（网络存储）**，之后用 Immich 等相册软件浏览管理。照片始终保存在你自己的设备上，不经过任何第三方云。
+Photo Gateway 是一个自托管的照片与视频导入服务：通过浏览器上传文件，按拍摄时间归档、按内容去重，并可将本地归档**单向同步**到 NAS。可与 Immich 等支持外部图库的相册应用搭配使用。
 
-简单说，它替你完成两件家务：
+**照片与数据库保存在自有设备上，不依赖第三方云存储。**
 
-1. **收集并整理**：家人用手机/电脑把照片传给它，它自动按“拍摄时间”归档到 `Photos/年份/年月` 文件夹（同一张照片重复上传会自动识别，不会存两份；原始文件不被压缩或改动）。
-2. **备份到 NAS**：等没有上传在处理时，把归档好的照片**单向同步**到你的 NAS（保留拍摄时间）。NAS 是“正式库”，网页相册软件（如 Immich）从这里读取时间线；本机只做中转与短期保存，空间不够时还能清理旧月份腾地方。
+## 主要功能
 
+- **上传与归档**：支持电脑和手机浏览器批量上传，按 `Photos/YYYY/YYYYMM` 组织原始文件；通过 SHA-256 去重，不压缩原文件。
+- **图片与视频**：支持 JPEG、PNG、HEIC/HEIF、RAW、MP4/MOV 等格式（具体以配置为准）；提供缩略图、原图预览和浏览器支持的视频播放。
+- **照片浏览**：按拍摄时间或上传时间筛选，支持日期范围、来源设备、类型、排序及分页。
+- **本地回收站**：单张照片移入回收站、查看和恢复；默认保留 30 天。重新上传已主动删除的相同内容时要求人工确认。
+- **NAS 同步**：通过 SSH/rsync 单向增量同步；提供同步状态、失败重试与本地历史清理。**不会删除 NAS 上已有的照片。**
+- **数据管理**：SQLite 本地数据库、在线一致性备份、上传处理日志与基本的磁盘容量监控。
+
+```text
+手机 / 电脑
+    │ 浏览器上传
+    ▼
+Photo Gateway
+    ├── Photos/YYYY/YYYYMM   本地归档
+    ├── recycle_bin          本地回收站
+    └── SQLite               文件索引与上传记录
+    │
+    └── SSH / rsync ────────► NAS（可供 Immich 外部图库读取）
 ```
-手机 / 电脑 / 相机 ──上传──▶ 家庭里常开的一台小电脑（本服务）
-                               │ 整理归档 Photos/年份/年月
-                               │ 按条件单向同步（rsync over SSH）
-                               ▼
-                           NAS（正式照片库）
-                               │ 挂载为外部照片库
-                               ▼
-                     Immich 等相册软件（时间线 / 搜索 / 备份）
+
+## 运行要求
+
+- Python 3.12
+- 可写的本地文件系统（用于照片与 SQLite；请勿将数据库放在网络文件系统上）
+- NAS 同步为可选功能，需要目标支持 SSH 与 rsync
+- 如使用容器部署，需要 Docker Engine 和 Docker Compose
+
+## 快速开始（Python）
+
+以下示例使用独立 Python 虚拟环境。Linux 和 macOS 均可运行；请自行准备已挂载且有足够空间的数据目录。
+
+```bash
+git clone https://github.com/wssanyecao/photo_system.git
+cd photo_system
+
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+
+mkdir -p "$HOME/photo-gateway-data"
+cp config/photo-gateway.example.yaml config/config.yaml
 ```
 
-> 项目源自作者自己的家庭照片管理需求，可运行在任意 **常开的 Linux 小主机**上：
-> ARM 单板机（树莓派、香橙派、软路由盒子等）、旧电脑、NAS 里的容器/虚拟机都可以——
-> 文中的路径、主机名都只是示例，请替换成你自己的。
+编辑 `config/config.yaml`，至少设置：
 
----
+- `storage.root`：改成实际数据目录，例如 `/home/user/photo-gateway-data`
+- `devices`：配置允许上传的来源设备及显示名称
+- `auth`：按需启用登录认证。生成密码哈希：`python -m photo_gateway hash-password`
 
-## 目录
+`config/config.yaml` 是**本地配置文件，不应提交到 Git**。请确保数据目录事先存在并具有写权限。
 
-- [需要准备什么](#需要准备什么)
-- [快速开始](#快速开始)
-- [网页里能做什么](#网页里能做什么)
-- [常见问题](#常见问题)
-- [维护命令速查](#维护命令速查)
-- [给开发者和维护者](#给开发者和维护者)
-- [许可](#许可)
+```bash
+python -m photo_gateway check --config config/config.yaml
+python -m photo_gateway serve --config config/config.yaml
+```
 
----
+浏览器访问 `http://127.0.0.1:8080/`。需要其他设备访问时，在配置中指定合适的内网监听地址，并建议启用认证；**不要将未启用认证的服务直接暴露到公网**。
 
-## 需要准备什么
+容器部署见 [Docker Compose 指南](docs/container.md)。
 
-| 东西 | 说明 |
+## 配置 NAS 同步
+
+在 `config/config.yaml` 中设置 `sync.enabled: true`，并配置 NAS 地址、SSH 用户、私钥、已验证的 `known_hosts` 和目标路径。配置示例见 [config/photo-gateway.example.yaml](config/photo-gateway.example.yaml)。
+
+NAS 是同步目标，回收站只处理本地文件。移入回收站的照片不再参与后续同步；先前已同步到 NAS 的文件**不会被远程删除**。照片恢复后允许再次同步。
+
+## 网页使用
+
+| 页面 | 主要操作 |
 | --- | --- |
-| 一台**常开的小电脑**（主机） | 运行本服务，存放“中转照片库”。Linux（含 ARM 板）均可，装 Python 3.12 |
-| （可选，推荐）**NAS** | 最终保存正式照片库的机器，支持 SSH 登录即可（群晖/威联通/自组 NAS 都行） |
-| 浏览器 | 上传与查看都用网页，手机/电脑浏览器都可以 |
-| 相册软件（可选） | 如 Immich——通过“外部照片库”读取 NAS 上的 `Photos` 目录 |
+| 上传 | 选择来源设备、批量选择文件、检查重复并上传 |
+| 照片 | 浏览、筛选、分页、预览与移入回收站 |
+| 回收站 | 在照片页切换；沿用筛选与分页，点击大图后恢复照片 |
+| 同步 | 查看 NAS 同步条件、月份状态和失败重试 |
+| 系统 | 查看存储容量、处理状态和相关统计 |
+| 说明 | 查看基础操作与维护说明 |
 
-术语：**NAS = 网络存储**，指家里那台专门存数据、常开的大容量机器；**归档 = 把照片按年月整理好放进指定目录**；**去重 = 同一张照片只保留一份**；**EXIF = 相机/手机写在照片里的拍摄信息（时间、定位等）**。
+## 维护命令
 
----
-
-## 快速开始
-
-### 1. 准备一个数据目录
-
-程序要求数据目录**已经存在**（它不会替你在掉线的硬盘上“假装”建目录）：
+所有命令均在应用环境中执行。以下示例使用相同的配置文件：
 
 ```bash
-mkdir -p ~/photo-gateway-data
+python -m photo_gateway check --config config/config.yaml
+python -m photo_gateway db-backup --config config/config.yaml
+python -m photo_gateway maintenance --config config/config.yaml
+python -m photo_gateway cleanup --config config/config.yaml
 ```
 
-### 2. 安装
+`cleanup` 默认仅预览可清理的**本地**历史月份；`cleanup --apply --yes` 才执行不可逆删除。执行前应验证 NAS 副本与数据库备份。数据库建议定期使用 `db-backup` 创建一致性快照，并将备份保存在独立存储位置。
 
-本地开发需要 Python 3.12：
+回收站默认 30 天后清理本地实体文件，保留内容哈希与删除记录；可以通过 `recycle_bin.retention_days` 调整。
+
+## 项目结构
+
+```text
+photo_gateway/       服务与 WebUI 源码
+config/              配置样例
+deploy/compose/      Compose 部署配置样例
+docs/container.md    容器部署指南
+tests/               自动化测试
+Dockerfile           容器镜像构建
+compose.yaml         Docker Compose 服务定义
+```
+
+运行自动化测试：
 
 ```bash
-pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
 ```
 
-运行依赖统一由 `requirements.txt` 安装，其中 `pillow-heif` 为必装依赖，用于
-HEIC/HEIF 的拍摄时间读取、缩略图与跨浏览器预览。
+## 更新记录
 
-docker-host 生产环境使用 Docker Compose，避免依赖 Debian 13 宿主机 Python 版本：
+功能更新摘要参见 [CHANGELOG.md](CHANGELOG.md)。
 
-```bash
-# 仅展示入口；先阅读 deploy/docker-host/README.md，生产执行需单独批准
-sudo deploy/docker-host/install-docker.sh
-# Mac：构建 linux/amd64 镜像、校验并同步
-./docker_build_rsync.sh
-# docker-host：选择最新镜像、校验、导入并启动
-/data/compose/photo-system/load_start.sh
-```
-
-### 3. 生成你自己的配置
-
-```bash
-cp config/photo-gateway.example.yaml config/photo-gateway.local.yaml
-```
-
-编辑这份配置文件，重点改两处：
-
-- `storage.root` → 第 1 步建好的数据目录；
-- `devices` → 把要传照片的设备登记进去，例如：
-
-```yaml
-devices:
-  - id: xiaomi-phone      # 设备标识（自定义，只用于区分照片来自哪台设备）
-    name: 我的小米手机
-    enabled: true
-  - id: pc
-    name: 电脑
-    enabled: true
-```
-
-> 启用“登录保护”需要先生成口令加密串：`python -m photo_gateway hash-password`，
-> 然后把结果填到配置的 `auth.password_hash` 并把 `auth.enabled` 改为 `true`。
-
-### 4. 校验并启动
-
-```bash
-python -m photo_gateway check --config config/photo-gateway.local.yaml   # 检查配置
-python -m photo_gateway serve --config config/photo-gateway.local.yaml   # 启动服务
-```
-
-浏览器打开 `http://主机IP:8080/`（未开启登录保护时直接可用；手机要在同一局域网）。
-
-### 5.（可选）开启同步到 NAS
-
-在配置里加一段 `sync`，告诉它 NAS 怎么连（密钥需先配好免密登录）：
-
-```yaml
-sync:
-  enabled: true
-  nas:
-    host: "nas.example.local"          # NAS 地址
-    ssh_port: 22
-    ssh_user: "backup"            # NAS 上用于同步的账号
-    ssh_key: "/home/user/.ssh/id_ed25519"
-    target_root: "/volume1/Photos"  # NAS 上保存照片库的目录（需存在且可写）
-  worker:
-    cycle_interval_seconds: 300   # 每隔多少秒检查一次是否有新照片要同步（默认 300）
-  failure:
-    threshold: 3                  # 连续失败几次后暂停该月（需到网页点“重试”恢复）
-  cleanup:
-    enabled: true
-    synced_retention_days: 90     # 同步成功多少天后，才允许清理本机该月副本
-```
-
----
-
-## 网页里能做什么
-
-顶部导航五个页签：
-
-- **上传**：选设备 → 多次选照片（可拖拽/追加）→ 核对清单（可单张移除、清空）→ 点“检测并上传”。有重复会提示你“跳过/重传”，全部处理完给出结果汇总，可“继续上传下一批”。
-- **照片**：按“拍摄时间/上传时间”浏览，快捷范围（全部/今天/近 7 天/近 30 天）或自定义起止日期，排序可最新/最早在前；每页张数可按需调整；点击缩略图弹出大图预览。已被本地清理的照片不再显示。
-- **同步**：先看“开始同步前需要满足的条件”（NAS 是否在线、目录是否就绪、上传是否空闲）是否全绿；下面两张表按月展示同步状态（正常/异常·已暂停/待重试/尚未同步）与最近同步轮次，可点表头排序、翻页；异常月份点“重试”恢复。
-- **系统**：存储空间用了几成、后台处理状态、照片与批次统计。
-- **说明**：用大白话讲系统的运行原理，并提供给运维人员的命令表。
-
-## 视频文件也支持
-
-可以像照片一样上传视频（MP4/MOV/M4V/3GP 等，扩展名见配置 `upload.allowed_extensions`）：
-
-- **归档时间**：系统读取视频容器里的创建时间（≈拍摄/编码时间）作为归档月份；读不到时回退文件时间，规则与照片一致；
-- **同步**：视频与照片一样经过去重、归档后单向同步到 NAS，原文件字节不被改动；
-- **网页**：照片页以“首帧预览 + ▶ 角标”显示视频；点击弹出灯箱即可**直接播放**（支持拖动进度；文件接口已支持 Range 分块）。
-
-注意：不同浏览器对视频编码支持不同（例如 iPhone/Safari 可播 HEVC，部分安卓/桌面浏览器不行）——视频能照常上传和同步，但“能否在网页上播放”取决于浏览器。服务端不为视频生成缩略图（避免在低性能设备上解码视频）。
-
-## HEIC / HEIF 图片的网页预览
-
-iPhone / 微信等实拍常用 HEIC/HEIF（允许上传与归档，见 `upload.allowed_extensions`）：
-
-- `pillow-heif` 已是正式运行依赖：HEIC 可读取拍摄时间、生成 JPEG 缩略图；点击大图时由服务端生成
-  最大 2048px 的 JPEG 预览，因此 Chrome/Edge/Firefox 不需要原生支持 HEIC。右上角仍可打开或下载原文件。
-- 单个损坏或不兼容文件仍按“读不到→回退文件时间/占位”处理，不会拖垮整个服务；注册失败会写错误日志。
-
----
-
-## 常见问题
-
-**为什么从安卓/小米手机浏览器上传的照片没有定位信息？**
-这不是本系统的问题：从 Android 10 起，系统出于隐私考虑会在“选择照片”时**自动抹掉照片里的定位(EXIF GPS)**，即使选择器本身不缩图也如此，网页端无法绕过。要保留定位，请用能读取原文件的手机 App（在相册权限下读取原始文件后上传）或先把照片传到电脑再上传。
-
-**照片会不会被压缩/修改？**
-不会。本服务不改动原文件字节，只读取拍摄信息用于归档目录与时间线；网页预览用自动生成的缩略图，不影响原图。
-
-**同一张照片传了两次怎么办？**
-会被识别为重复并提示；同一张照片在库里只保留一份记录（记录保留是为了“知道传过”，避免误判）。
-
-**NAS 同步失败后呢？**
-某个月份连续失败到阈值会自动“暂停”，网页同步页会标红并给出原因；修好 NAS 后点该行的“重试”即可，下一轮自动继续。
-
-**本机空间不够了怎么办？**
-已成功同步 NAS、且超过“本地保留时间”的历史月份可以清理本机副本（NAS 上仍有完整副本）。网页只提示“可清理”，**不会自动删除**；真正删除需要管理员执行命令并双确认（见下）。
-
-**忘了怎么维护？**
-网页“说明”页里有完整的运维命令表（含使用场景与危险提示）。
-
----
-
-## 维护命令速查
-
-所有命令入口都是 `python -m photo_gateway <命令>`，并带 `--config 你的配置`。常驻服务是 `serve`，其余按需执行。
-
-| 命令 | 作用 | 什么时候用 | 注意 |
-| --- | --- | --- | --- |
-| `check` | 检查配置 | 每次改配置后 | 报错会说明原因 |
-| `hash-password` | 生成登录密码的加密串 | 开启登录保护前 | 结果写入配置 |
-| `serve` | 启动网页与后台服务 | 日常运行 | 改配置后需重启；Docker 部署由 Compose 管理，不能在宿主机另行运行 |
-| `db-backup` | 生成 SQLite Online Backup 一致快照 | 迁移前、升级前或定期备份 | 输出含已提交 WAL 数据，不改原库；成功后仍须复制到独立存储 |
-| `maintenance` | 手动清理过期临时文件/预览缓存 | 磁盘紧张或不想等每日自动清理 | 只删过期缓存 |
-| `maintenance --scan-missing` | 核对并隐藏“本地文件已丢”的照片 | 外部误删文件后 | 只标记不删除 |
-| `backfill-exif` | 为旧照片补读拍摄信息 | 老库升级后 | 可重复执行 |
-| `align-mtime` | 把旧文件时间对齐到拍摄时间 | 时间线错乱 | 可重复执行 |
-| `cleanup` | 预览哪些历史月份可清理（不删） | 想看看候选 | 安全预览 |
-| **`cleanup --apply --yes`** | **真正删除本机已同步的历史月份副本** | 确认 NAS 已有备份后 | **不可逆；需两个参数同时给**，删除会记录日志 |
-
-全局 `python -m photo_gateway --version` 可查看版本，`python -m photo_gateway --help` 可列出全部命令与参数。
-
-Docker/docker-host 中执行一致性数据库备份：
-
-```bash
-cd /data/compose/photo-system
-docker compose --env-file .env -f compose.yaml exec -T photo-gateway \
-  python -m photo_gateway db-backup --config /etc/photo-gateway/config.yaml
-```
-
-默认输出为 `storage.root/backups/photo-gateway-时间.db`。该文件是可迁移的单文件 SQLite 快照，包含已提交的
-WAL 事务；它不会改写当前数据库或截断 WAL。备份成功后应完成完整性校验，并复制到 docker-host 之外的独立存储。
-
-完整说明（参数细节、每个输出的含义）见网页“说明”页与下方“给开发者和维护者”的文档链接。
-
----
-
-## 给开发者和维护者
-
-### 技术栈与结构
-
-- Python 3.12 + FastAPI + SQLite + Pillow + PyYAML；前端为无框架的单文件页面 `photo_gateway/webui/index.html`。
-- 代码目录：`photo_gateway/`（config 配置 / db 数据库迁移 / upload 上传 / worker 归档 / v2* 同步 / http 装配 / webui）。
-- 测试：`python -m pytest tests/ -q`（配置/日志/DB 迁移/上传会话/归档去重/同步与清理/API/WebUI/Docker 后台模型等）。
-
-### 核心概念
-
-- **两个阶段**（源码与规范文档用 v1/v2 标注，等价于）：
-  - v1 = “上传与归档”：Session/预检去重 → 上传 → 按拍摄时间归档 `Photos/YYYY/YYYYMM`；
-  - v2 = “同步与清理”：周期把新月份同步到 NAS，失败隔离/人工重试，超保留期后可清理本机历史。
-- **时间线正确性**：EXIF(DateTimeOriginal/…) → 客户端文件修改时间(modified_ms) → 文件时间兜底；归档后把磁盘 mtime 对齐到拍摄时间；同步用 `rsync -rt` 保留 mtime。EXIF 日期支持多层 IFD（DateTimeOriginal 位于 0x8769 子 IFD）。
-- **资产与删除**：`photo_assets` 记录是“去重身份”，不随文件删除而删；本地文件缺失时置 `file_missing_at`（照片页隐藏），同内容再次上传自动“复活”本地副本。删除语义 = 本机删、NAS 留。
-- **运维入口**：历史月份清理的唯一真删入口仍是 `cleanup --apply --yes`；用户单张照片删除则走网页回收站并记录审计。V2 周期任务永远只预览历史月份清理（dry-run）。
-
-### AI 研发工作流与跨平台接力
-
-本项目参照 `ai-dev-workflow` 通用规范（初始接入基线 `82541ee`；2026-10-15 按负责人批准同步分支与发布治理，来源记录 `597e086`）进行开发协作：AI 按风险自动选择轻量、标准或完整执行流程，保留现有工程质量门禁与已冻结的业务规格。跨 AI 平台继续工作前，应先阅读 `docs/HANDOFF.md`，并核对真实 Git 状态与测试结果。
-
-正式发布采用短期开发分支、验证与隐私检查、Squash Merge 到 `main`；只推送 `main`。完整开发历史和归档引用保留在本地，不随发布推送。发布检查覆盖最终文件、待公开提交的内容、提交说明及作者信息；不默认改写已公开历史。
-
-**本项目的完整 `AGENTS.md` 仅保存在项目负责人本机，由本地 `.gitignore` 忽略，不随公开 Git 仓库分发。** 使用其他电脑或 AI 平台时，须经负责人授权从本地或其他安全渠道获取；公开仓库中的 README、HANDOFF、Skills 不等于完整私有协作规范。`docs/HANDOFF.md` 属公开文档，不得记录敏感信息。
-
-### 文档导航（规范与详情）
-
-| 文档 | 内容 |
-| --- | --- |
-| `docs/photo-gateway-v1-spec.md` | v1（上传归档）架构/流程/冻结原则（权威） |
-| `docs/photo-gateway-v1-config-spec.md` | 配置文件规范（Frozen，YAML） |
-| `docs/photo-gateway-v1-db-spec.md` | v1 数据库与字段语义（权威） |
-| `docs/photo-gateway-v1-api-spec.md` | v1 HTTP API 契约（权威） |
-| `docs/photo-gateway-v1-webui-spec.md` | v1 WebUI 行为规范 |
-| `docs/photo-gateway-v2-spec.md` | v2（同步/清理）状态机（权威） |
-| `docs/db-field-dictionary.md` | 全部数据库字段中文速查 |
-| `DEVELOPMENT.md` | 环境/常用命令/变更记录(Changelog)/已知缺口 |
-| `ENVIRONMENT.md` | 开发/测试/legacy-host 旧生产/docker-host Docker 新生产的唯一环境说明 |
-| `docs/photo-gateway-container-deployment.md` | docker-host Docker 部署架构与发布门槛 |
-| `docs/HANDOFF.md` | 公开安全的任务交接状态；跨平台接手前先核验 Git 与测试证据 |
-| `skills/task-handoff/SKILL.md` | HANDOFF 的更新与跨 AI 平台交接操作说明 |
-
-> 规范文档按“冻结基线 + 已批准扩展附录”演进（如 `config-spec §63`、`api-spec §88`、`db-spec §40`），
-> 新增语义会先回写附录再实现，保持可追溯。二次开发前请先读对应 spec。
-
-### 已知边界（如实说明）
-
-- 真实 NAS（rsync over SSH）已在局域网实测：首次同步、故障隔离（ABNORMAL）与“重试”恢复全链路通过；浏览器自动化端到端与 ARM 小主机实机演练尚未进行。
-- EXIF 三类日期源读取做了简化合并（多层 IFD 已正确读取），`date_source` 可能不严格区分三种 EXIF 源。
-- 失败文件在网页端暂未提供“自动补传”，需回到上传页重选；WebUI 无历史月份批量清理按钮（该操作走命令行）；单张照片可由照片预览移入回收站。
-- 开启登录保护前请确认：`auth.enabled=true`、配置权限 `chmod 600`、仅内网/反代使用。
-
----
-
-## 许可
+## 许可证
 
 [MIT License](LICENSE)
-
-## V1.4 — 本地回收站和删除
-
-在“照片”页面打开预览，点击“移入回收站”，本地原件会立即从 `Photos` 移走，停止参与后续 NAS 同步。页面“回收站”可预览并手动恢复；恢复后重新允许同步。默认 30 天后清理回收站实体文件，保留 SHA-256 去重身份和删除审计记录。已同步至 NAS 的文件不会被撤回，系统**不会从 NAS 删除任何数据**。
-
-上传相同内容（SHA-256 命中回收站或永久清理的资产）时，须在上传页确认“保持删除”或“恢复/重新导入”，绝不会自动恢复。待确认文件隔离在 `review_pending` 目录，默认 7 天未处理则标记超时失败。本地目录历史清理 `cleanup --apply --yes` 与用户删除相互独立。配置项见 `docs/photo-gateway-v1.4-recycle-bin-spec.md`，可选：
-```yaml
-recycle_bin:
-  enabled: true
-  retention_days: 30
-  auto_purge: true
-```
-
-**部署提醒**：新镜像首次启动会将 SQLite schema 升级至 v4。升级前应通过 `db-backup` 生成一致快照，并在独立存储保留回滚副本；旧镜像不能直接复用新数据库进行版本回退。详细升级/恢复流程见 `deploy/docker-host/README.md`。
-
-### 统一照片/回收站浏览体验
-
-点击照片页中的“回收站”会直接替换当前照片列表，保留相同的照片网格、右侧信息栏、分页和筛选功能。标题变为“回收站”，右上角变为“返回照片”；点击回收站照片默认放大，灯箱主按钮为“恢复照片”。时间筛选仍为原始拍摄/上传时间，并非删除日期。回收站详情可查看删除时间与预计清理时间。

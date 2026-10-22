@@ -1,0 +1,53 @@
+# Local credentials, per-machine configuration and AI instructions
+AGENTS.md
+agents_v1.md
+.env
+.env.*
+!.env.example
+*.local.yaml
+config.local.yaml
+config/config.yaml
+reasonix.toml
+.reasonix/
+secrets/
+*.pem
+*.key
+id_ed25519
+id_rsa
+
+# Project runtime data and build products
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+data_runtime/
+.artifacts/
+.obsidian/
+.vscode/settings.json
+local_scritps/
+photo-system-*-linux-amd64.tar
+photo-system-*-linux-amd64.tar.sha256
+
+# Internal planning/hand-off/legacy deployment files (kept only on local machines)
+/DEVELOPMENT.md
+/ENVIRONMENT.md
+/REGRESSION_CHECKLIST.md
+/docs/HANDOFF.md
+/docs/db-field-dictionary.md
+/docs/photo-gateway-*.md
+/docs/AGENTS-revision-draft-v1.md
+/skills/task-handoff/
+/deploy/docker-host/
+/docker_build_rsync.sh
+
+# Sensitive or bulky runtime exports
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log

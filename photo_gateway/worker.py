@@ -1,4 +1,4 @@
-"""V1 Worker（阶段4 处理归档）。
+"""照片处理与归档 Worker。
 
 对齐 v1-spec/db-spec：
 - 由 upload_items status='UPLOADED' 驱动（incoming 文件已就绪）
@@ -408,7 +408,7 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     original_filename = item["original_filename"]
     src = incoming_dir / original_filename
     if not src.exists():
-        # incoming 丢失：状态 FAILED 告警（重启恢复留阶段5兜底）
+        # incoming 丢失：状态 FAILED 告警（重启恢复任务继续处理）
         _mark_item_failed(conn, item_id, "FILE_MISSING", "incoming file missing")
         return {"item_id": item_id, "status": "FAILED", "error_message": "incoming file missing"}
 

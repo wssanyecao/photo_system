@@ -43,16 +43,16 @@ def test_example_config_loads_and_defaults():
     assert cfg.logging.rotation.max_size_mb == 50
     assert cfg.logging.rotation.retention_days == 30
     # 设备读取
-    assert cfg.device_ids() == ["phone-xiaomi", "phone-iphone", "camera-pc"]
-    assert cfg.enabled_device_ids() == ["phone-xiaomi", "phone-iphone", "camera-pc"]
+    assert cfg.device_ids() == ["phone", "camera"]
+    assert cfg.enabled_device_ids() == ["phone", "camera"]
 
 
 def test_storage_relative_resolves_under_root():
     cfg = load_config(EXAMPLE)
-    assert cfg.storage.resolved_incoming() == Path("/mnt/sda1/photo-gateway") / "incoming"
-    assert cfg.storage.resolved_archive() == Path("/mnt/sda1/photo-gateway") / "Photos"
+    assert cfg.storage.resolved_incoming() == Path("/srv/photo-gateway/storage") / "incoming"
+    assert cfg.storage.resolved_archive() == Path("/srv/photo-gateway/storage") / "Photos"
     assert cfg.storage.resolved_database() == (
-        Path("/mnt/sda1/photo-gateway") / "database" / "photo-gateway.db"
+        Path("/srv/photo-gateway/storage") / "database" / "photo-gateway.db"
     )
 
 

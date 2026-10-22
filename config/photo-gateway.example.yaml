@@ -1,13 +1,6 @@
-# =====================================================================
-# Photo Gateway V1 —— 配置文件示例 (YAML, spec: config-spec Frozen Baseline)
-# ---------------------------------------------------------------------
-# 校验命令：
-#     python -m photo_gateway --config config/photo-gateway.example.yaml --check
-#
-# 生产运行时把本文件复制为 /etc/photo-gateway/config.yaml 使用（chmod 600，
-# 并填入真实 password_hash）。本示例不包含真实口令哈希，故 auth.enabled=false；
-# 需启用认证时按 spec 填入正确 hash 并置 true。
-# =====================================================================
+# Photo Gateway 配置示例。
+# 复制到一个未纳入版本控制的配置文件，并根据部署环境修改。
+# auth.enabled=false 仅用于可信内网试运行；不要将未认证的服务暴露公网。
 
 version: 1
 
@@ -24,18 +17,15 @@ auth:
 devices:
   # 推荐：把每台用于上传照片的设备登记成一项（id 为设备标识，name 仅用于展示）。
   # 按你实际设备替换下面示例即可；id 用于识别“照片来自哪台设备”。
-  - id: phone-xiaomi
-    name: 小米手机
+  - id: phone
+    name: 手机
     enabled: true
-  - id: phone-iphone
-    name: iPhone
-    enabled: true
-  - id: camera-pc
-    name: 电脑/相机导入
+  - id: camera
+    name: 相机
     enabled: true
 
 storage:
-  root: /mnt/sda1/photo-gateway   # 示例：请改成你的数据盘目录（开发调试时可换成本地目录）
+  root: /srv/photo-gateway/storage  # 修改为已存在、具有写权限的数据目录
   incoming: incoming
   processing: processing
   failed: failed

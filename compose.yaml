@@ -2,8 +2,8 @@ name: photo-system
 
 services:
   photo-gateway:
-    # 开发机构建环境为 macOS/ARM64，docker-host 运行环境固定为 Linux/x86_64。
-    platform: linux/amd64
+    # 默认面向 linux/amd64 构建；其他架构可在镜像验证后调整。
+    platform: ${PHOTO_PLATFORM:-linux/amd64}
     build:
       context: .
       args:
@@ -28,27 +28,27 @@ services:
     environment:
       TZ: Asia/Shanghai
     ports:
-      - "${PHOTO_BIND_IP:-0.0.0.0}:${PHOTO_PORT:-18080}:18080"
+      - "${PHOTO_BIND_IP:-127.0.0.1}:${PHOTO_PORT:-18080}:18080"
     volumes:
       - type: bind
-        source: ${PHOTO_STORAGE_ROOT:-/data/compose/photo-system/storage}
+        source: ${PHOTO_STORAGE_ROOT:-/srv/photo-gateway/storage}
         target: /data/photo-system/storage
         bind:
           create_host_path: false
       - type: bind
-        source: ${PHOTO_CONFIG_PATH:-/data/compose/photo-system/config/config.yaml}
+        source: ${PHOTO_CONFIG_PATH:-/srv/photo-gateway/config.yaml}
         target: /etc/photo-gateway/config.yaml
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${PHOTO_NAS_KEY_PATH:-/data/compose/photo-system/secrets/nas_key}
+        source: ${PHOTO_NAS_KEY_PATH:-/srv/photo-gateway/secrets/nas_key}
         target: /home/photo-gateway/.ssh/nas_key
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${PHOTO_KNOWN_HOSTS_PATH:-/data/compose/photo-system/secrets/known_hosts}
+        source: ${PHOTO_KNOWN_HOSTS_PATH:-/srv/photo-gateway/secrets/known_hosts}
         target: /home/photo-gateway/.ssh/known_hosts
         read_only: true
         bind:

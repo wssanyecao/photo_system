@@ -1,4 +1,4 @@
-"""V1 阶段5 可靠性原语：.tmp 清理 + 磁盘保护。
+"""上传可靠性工具：.tmp 清理 + 磁盘保护。
 
 对齐 v1-spec §35/. §36：
 - *.tmp 不做断点 offset；启动/周期可清理超过 max_age_days 的 *.tmp（§35）
@@ -105,7 +105,7 @@ class StorageState:
 
 
 def recover_processing(conn, processing_dir: Path, incoming_dir: Path) -> int:
-    """重启恢复(阶段5/§57.2)：把 processing/ 中未完成任务移回 incoming/ 并同步状态。
+    """重启恢复：把 processing/ 中未完成任务移回 incoming/ 并同步状态。
 
     对每个 processing/ 内文件：
       - 找到对应 upload_item(status='PROCESSING' 且 original_filename=文件名)

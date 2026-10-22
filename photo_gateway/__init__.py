@@ -1,7 +1,3 @@
-"""Photo Gateway — 家庭照片导入网关与存储中间层 (V1)。
-
-实现以 docs/photo-gateway-v1-*.md 各 Spec（Frozen Baseline）为最终依据。
-顶层包负责应用组装与共享类型。
-"""
+"""Photo Gateway — 本地照片导入、归档与 NAS 单向同步服务。"""
 
 __version__ = "0.1.0"
