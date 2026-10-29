@@ -1,7 +1,7 @@
 """photo-gateway 命令行入口。
 
 用法：
-    python -m photo_gateway --config path --check          # 校验配置 (spec §53)
+    python -m photo_gateway check --config path          # 校验配置 (spec §53)
     python -m photo_gateway hash-password                 # 生成 scrypt password_hash
     python -m photo_gateway serve --config path           # 启动 HTTP 服务(V1 Phase1 后)
     python -m photo_gateway db-backup --config path       # 在线生成一致 SQLite 备份
