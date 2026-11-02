@@ -15,6 +15,7 @@ from __future__ import annotations
 import sqlite3
 import logging
 from typing import Any
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, Header, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -194,12 +195,19 @@ def deleted_reviews(session_id: str, req: Request):
             raise PgApiError("SESSION_NOT_FOUND", "session not found", 404)
         rows = conn.execute(
             "SELECT ui.id AS item_id, ui.original_filename, ui.asset_id,"
-            " pa.lifecycle_state FROM upload_items ui"
+            " pa.lifecycle_state,ui.source_sha256,pa.sha256 AS archived_sha256 FROM upload_items ui"
             " JOIN photo_assets pa ON pa.id=ui.asset_id"
             " WHERE ui.session_id=? AND ui.status='REVIEW_REQUIRED'"
             " ORDER BY ui.id", (session_id,),
         ).fetchall()
-        return {"success": True, "data": {"items": [dict(r) for r in rows]}}
+        items = [{
+            "item_id": r["item_id"], "original_filename": r["original_filename"],
+            "asset_id": r["asset_id"], "lifecycle_state": r["lifecycle_state"],
+            "restore_allowed": (r["lifecycle_state"] == "TRASHED"
+                                or r["source_sha256"] is None
+                                or r["source_sha256"] == r["archived_sha256"])
+        } for r in rows]
+        return {"success": True, "data": {"items": items}}
     finally:
         conn.close()
 
@@ -240,9 +248,24 @@ def confirm_item(item_id: int, body: ConfirmationBody, req: Request,
         conn.close()
 
 
+@router.post("/upload-items/{item_id}/skip")
+def skip_unmatched_item(item_id: int, req: Request):
+    """用户在 EXIF 检查阶段选择暂不上传，确保预检会话可以正确收尾。"""
+    _guard(req)
+    conn = _db(req)
+    try:
+        res = st.skip_unmatched_item(conn, item_id)
+        if res is None:
+            raise PgApiError("ITEM_NOT_SKIPPABLE", "item is not a pending upload", 409)
+        return {"success": True, "data": res}
+    finally:
+        conn.close()
+
+
 @router.post("/upload-items/{item_id}/file")
 async def upload_item_file(item_id: int, req: Request, file: UploadFile = File(...),
                            modified_ms: int | None = Form(default=None),
+                           exif_time: str | None = Form(default=None),
                            authorization: str = Header(default=None)):
     _guard(req)
     conn = _db(req)
@@ -256,10 +279,20 @@ async def upload_item_file(item_id: int, req: Request, file: UploadFile = File(.
             raise PgApiError("ITEM_NOT_FOUND", "item not found", 404)
         cfg = _state(req)["cfg"]
         # §30 允许性（NO_MATCH 或 POSSIBLE_DUPLICATE+confirmation=1）
-        from .upload import extension_supported, mark_upload_complete, save_item_file
+        from .upload import extension_supported, save_item_file
         _upload_gate(cfg, row)
         if not extension_supported(cfg, row["original_filename"]):
             raise PgApiError("UNSUPPORTED_FILE_TYPE", "file type not allowed", 415)
+        # EXIF 写入决策按单个 item 持久化，Worker 必须在重复内容检查后执行。
+        # 这里先验证请求值，拒绝非法日期、非 JPEG 格式，避免未授权修改。
+        if exif_time is not None:
+            from .exif_time import validate_confirmed_time, WRITABLE_EXTENSIONS
+            try:
+                validate_confirmed_time(exif_time)
+            except ValueError as exc:
+                raise PgApiError("INVALID_EXIF_TIME", str(exc), 422) from exc
+            if Path(row["original_filename"]).suffix.lower() not in WRITABLE_EXTENSIONS:
+                raise PgApiError("UNSUPPORTED_EXIF_WRITE", "EXIF 时间补全暂只支持 JPEG/JPG", 422)
         # 落盘到 incoming/(§31 .tmp→rename; 无断点续传 §33)
         from .reliability import StorageState
         target_dir = cfg.storage.resolved_incoming()
@@ -267,29 +300,48 @@ async def upload_item_file(item_id: int, req: Request, file: UploadFile = File(.
         if not StorageState(target_dir, cfg.disk.warning_percent,
                             cfg.disk.critical_percent, cfg.disk.stop_percent).accepts_uploads():
             raise PgApiError("STORAGE_ERROR", "insufficient storage", 507)
+        from .upload_claim import claim, private_stage_path, publish, release_failed
+        # BEGIN IMMEDIATE 中检查状态与抢占 token；只有获得权利才写入文件。
+        # 用户确认重复时 UPLOADING 表示意图，此处会正确接纳。
+        _claimed_row, token = claim(conn, item_id)
+        stage = private_stage_path(target_dir, row["original_filename"], item_id, token)
         lg = _upload_logger(req)
-        if lg is not None:
-            lg.info("upload started", event="upload_started", session_id=row["session_id"],
-                    photo_id=item_id, source_device=row["source_device"],
-                    filename=row["original_filename"])
         try:
+            if lg is not None:
+                lg.info("upload started", event="upload_started", session_id=row["session_id"],
+                        photo_id=item_id, source_device=row["source_device"],
+                        filename=row["original_filename"])
             await save_item_file(target_dir, row["original_filename"], file,
                                  expected_size=int(row["file_size"]),
                                  stop_percent=cfg.disk.stop_percent,
-                                 client_mtime_ms=modified_ms)
-        except Exception as exc:
+                                 client_mtime_ms=modified_ms,
+                                 private_tmp=stage)
+            # 发布权与状态转换同步校验；非法的过期写入者不能发布到 incoming。
+            session_id = publish(conn, item_id, token, stage,
+                                 target_dir / row["original_filename"], exif_time)
+        except BaseException as exc:
+            # 包括 ASGI 取消。失败请求的独立暂存不会触及已成功发布的字节。
+            try:
+                stage.unlink(missing_ok=True)
+            except OSError:
+                _FALLBACK_LOG.exception("upload staging cleanup failed item_id=%s", item_id)
+            try:
+                if release_failed(conn, item_id, token, str(exc)):
+                    st.recount_uploads(conn, row["session_id"])
+                    st.finalize_session(conn, row["session_id"])
+            except Exception:
+                _FALLBACK_LOG.exception("upload claim cleanup failed item_id=%s", item_id)
             if lg is not None:
                 lg.error("upload failed", event="upload_failed", session_id=row["session_id"],
                          photo_id=item_id, source_device=row["source_device"],
                          filename=row["original_filename"], error=str(exc))
             raise
         if lg is not None:
-            lg.info("upload completed", event="upload_completed", session_id=row["session_id"],
+            lg.info("upload completed", event="upload_completed", session_id=session_id,
                     photo_id=item_id, source_device=row["source_device"],
                     filename=row["original_filename"])
-        mark_upload_complete(conn, item_id)
-        st.recount_uploads(conn, row["session_id"])
-        st.finalize_session(conn, row["session_id"])  # 会话在无待传/未决时收尾(§ fix)
+        st.recount_uploads(conn, session_id)
+        st.finalize_session(conn, session_id)
         return {"success": True, "data": {"item_id": item_id, "status": "UPLOADED"}}
     finally:
         conn.close()

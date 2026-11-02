@@ -161,6 +161,9 @@ const server=http.createServer((req,res)=>{
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwS8AAAAASUVORK5CYII=','base64');
   await page.locator('#files').setInputFiles({name:'sample.jpg',mimeType:'image/jpeg',buffer:png});
   await page.locator('#bPre').click();
+  await page.waitForSelector('#Pexif:not(.hidden)');
+  await page.locator('#exifBatchKeep').click();
+  await page.locator('#exifContinue').click();
   await page.waitForSelector('#Pdeleted:not(.hidden)',{timeout:12000});
   await page.locator('#deletedReviews button').first().click();
   await page.waitForSelector('#Pres:not(.hidden)',{timeout:12000});

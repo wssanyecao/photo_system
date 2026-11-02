@@ -213,6 +213,29 @@ CREATE INDEX idx_photo_recycle_events_asset ON photo_recycle_events(asset_id, id
 
 """,
     ),
+    (
+        5,
+        """
+ALTER TABLE upload_items ADD COLUMN exif_confirmed_time TEXT;
+ALTER TABLE upload_items ADD COLUMN source_sha256 TEXT;
+CREATE TABLE photo_source_hashes (
+  source_sha256 TEXT PRIMARY KEY,
+  asset_id INTEGER NOT NULL REFERENCES photo_assets(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_photo_source_hashes_asset ON photo_source_hashes(asset_id);
+""",
+    ),
+    (
+        6,
+        """
+-- 上传请求持有的临时发布权。与用户确认状态 UPLOADING 区分。
+ALTER TABLE upload_items ADD COLUMN upload_token TEXT;
+ALTER TABLE upload_items ADD COLUMN upload_claimed_at INTEGER;
+CREATE INDEX idx_upload_items_filename_state
+  ON upload_items(original_filename, status);
+""",
+    ),
 ]
 
 

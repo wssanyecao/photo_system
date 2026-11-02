@@ -540,6 +540,24 @@ header h1,header nav,.theme-control{grid-row:1}
   header nav a{padding:7px 12px}
   #themeStatus{grid-row:3}
 }
+
+/* EXIF review inside existing upload card */
+.exif-tabs{display:flex;gap:9px;border-bottom:1px solid var(--line);padding-bottom:12px;margin:12px 0}
+.exif-tab{background:transparent;color:var(--mut);border:1px solid transparent;border-radius:9px;padding:9px 15px}
+.exif-tab.active{background:var(--brand-bg);color:var(--brand-d);border-color:var(--line2)}
+.exif-item{display:grid;grid-template-columns:66px minmax(0,1fr);gap:12px;padding:14px 8px;border-bottom:1px solid var(--line)}
+.exif-item-pic{position:relative;width:66px;height:64px;border-radius:9px;background:var(--brand-bg);display:flex;align-items:center;justify-content:center;color:var(--brand);overflow:hidden}.exif-item-pic .pick-preview{width:66px;height:64px;border-radius:9px}.exif-item-pic input[type=checkbox]{position:absolute;z-index:2;left:5px;top:5px;accent-color:var(--brand)}
+.exif-photo-icon{font-size:23px;align-self:center}.exif-item-title{font-weight:600;font-size:13px;overflow-wrap:anywhere}
+.exif-item-reason{font-size:12px;color:var(--mut);margin-top:5px;line-height:1.6;overflow-wrap:anywhere}
+.exif-item-extra{font-size:11px;color:var(--mut);margin-top:3px}
+.exif-item-edit{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+.exif-item-edit input[type=datetime-local]{padding:9px;border-radius:8px;border:1px solid var(--line2);font-size:13px;max-width:100%}
+.exif-item-edit button{padding:8px 10px;font-size:12px}
+.exif-item-error{font-size:11px;color:#bd5147;margin-top:4px}.exif-empty{padding:20px;text-align:center}
+.exif-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.exif-actions button{font-size:12px;padding:9px 11px}
+.exif-footer{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:18px}
+.exif-info{padding:10px 12px;border:1px solid var(--line);background:var(--brand-bg);border-radius:9px;color:var(--mut);font-size:12px;line-height:1.6}
+#exifRows{max-height:min(490px,55vh);overflow-y:auto}
 </style>
 </head>
 <body>
@@ -603,7 +621,7 @@ header h1,header nav,.theme-control{grid-row:1}
       <div id="uploadTrust" class="upload-trust" aria-label="上传说明">
         <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">＋</span><span><b>多选导入</b><small>可追加选择多批文件</small></span></div>
         <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">◉</span><span><b>本地预览</b><small>浏览器读取，不预先上传</small></span></div>
-        <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">✓</span><span><b>原片保留</b><small>归档时不压缩、不修改</small></span></div>
+        <div class="upload-trust-item"><span class="upload-trust-icon" aria-hidden="true">✓</span><span><b>本地原片保留</b><small>Mac 原片不变；采纳后副本补 EXIF</small></span></div>
       </div>
       <div id="pickListWrap" class="hidden"><div class="pick-head"><span>预览</span><span>文件名</span><span>大小</span><span>状态</span><span></span></div><ul id="pickList"></ul></div>
       <div class="pickmeta hidden" id="pickMeta">
@@ -621,6 +639,19 @@ header h1,header nav,.theme-control{grid-row:1}
       <div class="upload-stage-head"><b>发现可能重复的照片</b><span class="dim">这些文件可能已上传过，请逐项或统一决定</span></div>
       <div class="row"><button id="bSkipAll" class="ghost">全部跳过</button><button id="bReAll">全部重新上传</button></div>
       <div class="tblwrap"><table><thead><tr><th>文件名</th><th>大小</th><th>决定</th></tr></thead><tbody id="dupRows"></tbody></table></div>
+    </div>
+
+    <div class="upload-stage hidden" id="Pexif" aria-live="polite">
+      <div class="upload-stage-head"><b>检查照片时间信息</b><span class="dim">推荐时间请核对，Mac 上的原始文件不会修改</span></div>
+      <div class="exif-info">EXIF 时间完整的照片自动通过。缺少时间、部分缺失和无法读取的照片需要确认；采纳时只补写缺失的 EXIF 日期字段。</div>
+      <div class="exif-tabs" id="exifTabs"></div>
+      <div class="exif-actions" id="exifBatch">
+        <label><input type="checkbox" id="exifSelectAll"> 选择全部可采纳日期</label>
+        <button type="button" class="ghost" id="exifBatchAccept">批量采纳所选时间</button>
+        <button type="button" class="ghost" id="exifBatchKeep">待处理全部保留原样</button>
+      </div>
+      <div id="exifRows"></div>
+      <div class="exif-footer"><span class="dim" id="exifStatus"></span><button type="button" id="exifContinue">确认并继续上传</button></div>
     </div>
 
     <div class="upload-stage hidden" id="Pdeleted" role="status" aria-live="polite">
@@ -652,8 +683,9 @@ header h1,header nav,.theme-control{grid-row:1}
     <aside class="panel upload-flow" aria-label="导入流程">
       <div class="page-head"><span class="page-icon" aria-hidden="true">↻</span><div class="page-copy"><h2>导入流程</h2><p>从选择文件到完成归档</p></div></div>
       <div class="flow-list"><div class="flow-step"><span class="flow-no">1</span><div><b>检查可能的重复文件</b><p>根据文件信息预检，疑似重复项由你确认。</p></div></div>
-      <div class="flow-step"><span class="flow-no">2</span><div><b>上传并按拍摄月份归档</b><p>保留原始文件，不压缩、不修改。</p></div></div>
-      <div class="flow-step"><span class="flow-no">3</span><div><b>上传后检查同步条件</b><p>条件满足时，照片自动同步至 NAS。</p></div></div></div>
+      <div class="flow-step"><span class="flow-no">2</span><div><b>确认 EXIF 时间</b><p>时间缺失、部分缺失和无法读取的照片需要人工确认。</p></div></div>
+      <div class="flow-step"><span class="flow-no">3</span><div><b>上传并按拍摄月份归档</b><p>用户采纳后仅补写缺失的 EXIF 时间，图像像素不变。</p></div></div>
+      <div class="flow-step"><span class="flow-no">4</span><div><b>上传后检查同步条件</b><p>条件满足时，照片自动同步至 NAS。</p></div></div></div>
       <div class="flow-foot">预览在浏览器本地生成；无法预览的文件仍可上传。</div>
     </aside>
     <section class="panel upload-recent" aria-labelledby="recentTitle">
@@ -1093,10 +1125,192 @@ $("bClearFiles").onclick=()=>{ releaseAllPickPreviews();pickFiles=[];renderPick(
   }));
 })();
 
-/* ---- 上传流程：选择 → 检测/查重 → 传输 → 后台归档 → 结果 ---- */
+/* 上传前 EXIF 时间检查：只读取浏览器所选文件，不修改本地字节。 */
+let exifFilter='pending';
+const EXIF_FIELDS=['DateTimeOriginal','CreateDate','ModifyDate'];
+// datetime-local 可将整分钟的 :00 规范化为 YYYY-MM-DDTHH:mm。
+function exifNormalizeInput(v){
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v||'')?v+':00':v;
+}
+function exifValidISO(v){
+  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(v||''))return false;
+  const a=v.match(/^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)$/).slice(1).map(Number);
+  const d=new Date(Date.UTC(a[0],a[1]-1,a[2],a[3],a[4],a[5]));
+  return a[0]>=1900&&a[0]<=2100&&d.getUTCFullYear()===a[0]&&d.getUTCMonth()===a[1]-1&&d.getUTCDate()===a[2]&&d.getUTCHours()===a[3]&&d.getUTCMinutes()===a[4]&&d.getUTCSeconds()===a[5];
+}
+function exifParseTime(s){
+  const m=String(s||'').match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+  if(!m)return '';
+  const v=m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6];
+  return exifValidISO(v)?v:'';
+}
+function exifSuggestName(name){
+  let m=String(name).match(/(?:^|\D)(\d{14})(?!\d)/);
+  if(m){const v=m[1].replace(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/,'$1-$2-$3T$4:$5:$6');if(exifValidISO(v))return v;}
+  m=String(name).match(/(?:^|\D)(\d{8})(?!\d)/);
+  if(m){const v=m[1].replace(/^(\d{4})(\d\d)(\d\d)$/,'$1-$2-$3T00:00:00');if(exifValidISO(v))return v;}
+  return '';
+}
+function exifReadJpeg(bytes){
+  const view=new DataView(bytes);
+  if(view.byteLength<4||view.getUint16(0)!==0xffd8)throw Error('JPEG 文件头无效');
+  let p=2, tiff=null, truncated=false;
+  while(p+4<=bytes.byteLength){
+    if(view.getUint8(p)!==0xff)throw Error('JPEG 标记无效');
+    while(p<bytes.byteLength&&view.getUint8(p)===0xff)p++;
+    if(p>=bytes.byteLength){truncated=true;break;}
+    const marker=view.getUint8(p++);
+    if(marker===0xd9||marker===0xda)break;
+    if(marker===0x01||(marker>=0xd0&&marker<=0xd7))continue;
+    if(p+2>bytes.byteLength){truncated=true;break;}
+    const len=view.getUint16(p);
+    if(len<2)throw Error('JPEG 段长度无效');
+    if(p+len>bytes.byteLength){truncated=true;break;}
+    if(marker===0xe1&&len>=8&&String.fromCharCode(...new Uint8Array(bytes,p+2,6))==='Exif\0\0'){
+      tiff=p+8;break;
+    }
+    p+=len;
+  }
+  if(tiff===null){
+    if(truncated)throw Error('元数据位于扫描窗口外');
+    return {DateTimeOriginal:'',CreateDate:'',ModifyDate:''};
+  }
+  if(tiff+8>bytes.byteLength)throw Error('EXIF 数据不完整');
+  const b=view.getUint16(tiff),le=b===0x4949;
+  if(!le&&b!==0x4d4d)throw Error('EXIF 字节序无效');
+  const u16=o=>{if(o<0||o+2>bytes.byteLength)throw Error('EXIF 偏移越界');return view.getUint16(o,le)};
+  const u32=o=>{if(o<0||o+4>bytes.byteLength)throw Error('EXIF 偏移越界');return view.getUint32(o,le)};
+  if(u16(tiff+2)!==42)throw Error('EXIF TIFF 标识无效');
+  const result={DateTimeOriginal:'',CreateDate:'',ModifyDate:''};let sub=0;
+  function ifd(at,subIfd){
+    const n=u16(at);if(n>512)throw Error('EXIF IFD 数量异常');
+    for(let i=0;i<n;i++){
+      const off=at+2+i*12,tag=u16(off),typ=u16(off+2),count=u32(off+4);
+      if(!subIfd&&tag===0x8769&&typ===4&&count===1)sub=tiff+u32(off+8);
+      let key=(tag===0x9003?'DateTimeOriginal':tag===0x9004?'CreateDate':tag===0x0132?'ModifyDate':null);
+      if(!key||typ!==2||count<19||count>64)continue;
+      const loc=count<=4?off+8:tiff+u32(off+8);
+      if(loc<0||loc+count>bytes.byteLength)throw Error('EXIF 日期偏移无效');
+      let raw='';for(let j=0;j<count&&view.getUint8(loc+j)!==0;j++)raw+=String.fromCharCode(view.getUint8(loc+j));
+      result[key]=exifParseTime(raw);
+    }
+  }
+  ifd(tiff+u32(tiff+4),false);if(sub)ifd(sub,true);
+  return result;
+}
+async function exifInspect(file){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  if(ext!=='jpg'&&ext!=='jpeg'){
+    return {status:'unknown',fields:null,reason:['heic','heif'].includes(ext)
+      ? '当前浏览器检查器尚不支持 HEIC/HEIF EXIF 解析；HEIC 本身可以包含 EXIF 时间'
+      : '当前仅支持 JPEG/JPG 的浏览器本地 EXIF 检查'};
+  }
+  try{
+    // 限制内存：大图片仅取头部前 4 MiB；信息超出窗口时明确标记无法读取。
+    const buf=await file.slice(0,4*1024*1024).arrayBuffer();
+    const fields=exifReadJpeg(buf),n=EXIF_FIELDS.filter(k=>!!fields[k]).length;
+    return {status:n===3?'ok':n===0?'missing':'partial',fields,reason:''};
+  }catch(e){return {status:'unknown',fields:null,reason:String(e.message||e)};}
+}
+function exifPending(){return files.filter(x=>x.exif&&x.exif.decision==='pending');}
+function exifProcessed(){return files.filter(x=>x.exif&&x.exif.decision!=='pending');}
+function exifDateInput(s){return s?s.slice(0,19):'';}
+async function enterExifReview(){
+  const candidates=files.filter(it=>!(it.pre==='POSSIBLE_DUPLICATE'&&it.conf===2));
+  showUploadStage('progress');
+  $('txTitle').textContent='检查照片时间信息';$('pg').max=candidates.length;$('pg').value=0;
+  for(let i=0;i<candidates.length;i++){
+    const it=candidates[i];$('txCur').textContent='正在检查 '+it.file.name;
+    if(!it.exif){
+      const meta=await exifInspect(it.file);
+      const fields=meta.fields||{};
+      const current=fields.DateTimeOriginal||fields.CreateDate||fields.ModifyDate||'';
+      const suggested=current||exifSuggestName(it.file.name);
+      it.exif={...meta,value:suggested,source:current?'现有 EXIF 字段':suggested?'文件名':'没有可靠的推荐日期',
+               decision:meta.status==='ok'?'auto':'pending',selected:!!suggested&&meta.status!=='unknown'};
+    }
+    $('pg').value=i+1;$('txStage').textContent=(i+1)+' / '+candidates.length;
+  }
+  exifFilter='pending';renderExifReview();showUploadStage('exif');
+}
+function exifEscape(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function exifSummary(it){
+  const x=it.exif, f=x.fields||{},present=EXIF_FIELDS.filter(k=>!!f[k]);
+  if(x.status==='unknown')return '无法读取：'+x.reason;
+  if(x.status==='ok')return '时间完整，自动通过';
+  if(x.status==='partial')return EXIF_FIELDS.map(k=>k+(f[k]?' 有效':' 缺失')).join('，')+'；采纳后仅补写缺失字段';
+  return 'DateTimeOriginal、CreateDate、ModifyDate 均缺失'+(x.source==='文件名'?'；已根据文件名推荐时间':'；无法从文件名推荐时间');
+}
+function renderExifReview(){
+  const items=files.filter(it=>it.exif),pending=exifPending(),processed=exifProcessed();
+  const tabs=$('exifTabs');tabs.innerHTML=[['pending','待处理',pending.length],['processed','已处理',processed.length]]
+    .map(([key,title,count])=>'<button type="button" class="exif-tab '+(key===exifFilter?'active':'')+'" data-exif-tab="'+key+'">'+title+' '+count+'</button>').join('');
+  tabs.querySelectorAll('[data-exif-tab]').forEach(b=>b.onclick=()=>{exifFilter=b.dataset.exifTab;renderExifReview()});
+  const shown=items.filter(it=>exifFilter==='pending'?it.exif.decision==='pending':it.exif.decision!=='pending');
+  $('exifRows').innerHTML=shown.length?shown.map(it=>{
+    const idx=files.indexOf(it),x=it.exif,s=exifSummary(it),act=x.decision;
+    const writable=(x.status==='partial'||x.status==='missing');
+    const options=act==='pending'?(writable
+       ? '<input type="datetime-local" step="1" data-exif-date="'+idx+'" value="'+exifEscape(exifDateInput(x.value))+'"><button type="button" data-exif-accept="'+idx+'">采纳时间</button><button class="ghost" type="button" data-exif-keep="'+idx+'">保留原样</button>'
+       : '<button class="ghost" type="button" data-exif-keep="'+idx+'">原样上传</button><button class="ghost" type="button" data-exif-skip="'+idx+'">暂不上传</button>')
+       : '<span class="dim">'+({auto:'自动通过',accept:'已采纳时间',keep:'已确认原样上传',skip:'已决定暂不上传'}[act]||act)+'</span>'+
+         (act==='auto'?'':'<button type="button" class="ghost" data-exif-reopen="'+idx+'">重新编辑</button>');
+    const select=(act==='pending'&&writable&&exifValidISO(x.value))?'<input type="checkbox" data-exif-select="'+idx+'" '+(x.selected?'checked':'')+' aria-label="选择 '+exifEscape(it.file.name)+'">':'';
+    return '<div class="exif-item"><div class="exif-item-pic" data-exif-preview="'+idx+'">'+select+'</div>'+
+       '<div class="exif-item-body"><div class="exif-item-title">'+exifEscape(it.file.name)+'</div>'+
+       '<div class="exif-item-reason">'+exifEscape(s)+'</div>'+
+       '<div class="exif-item-extra">'+exifEscape('日期来源：'+x.source)+'</div>'+
+       '<div class="exif-item-edit">'+options+'</div><div class="exif-item-error" data-exif-error="'+idx+'"></div></div></div>';
+  }).join(''):'<p class="dim exif-empty">'+(exifFilter==='pending'?'全部照片均已确认，可继续上传。':'当前尚无已处理照片。')+'</p>';
+  $('exifRows').querySelectorAll('[data-exif-preview]').forEach(el=>{
+    const it=files[Number(el.dataset.exifPreview)];
+    el.appendChild(makePickPreview(it.file));
+  });
+  const candidates=items.filter(it=>it.exif.decision==='pending'&&it.exif.status!=='unknown'&&exifValidISO(it.exif.value));
+  $('exifSelectAll').disabled=exifFilter!=='pending'||candidates.length===0;
+  $('exifSelectAll').checked=candidates.length>0&&candidates.every(it=>it.exif.selected);
+  $('exifSelectAll').indeterminate=candidates.some(it=>it.exif.selected)&&!candidates.every(it=>it.exif.selected);
+  $('exifBatch').classList.toggle('hidden',exifFilter!=='pending');
+  $('exifContinue').disabled=pending.length!==0;
+  $('exifStatus').textContent=pending.length?pending.length+' 张照片尚需确认':'全部处理完毕';
+  $('exifRows').querySelectorAll('[data-exif-reopen]').forEach(el=>el.onclick=()=>{
+    const x=files[Number(el.dataset.exifReopen)].exif;
+    x.decision='pending';x.selected=exifValidISO(x.value);
+    exifFilter='pending';renderExifReview();
+  });
+  $('exifRows').querySelectorAll('[data-exif-date]').forEach(el=>el.onchange=()=>{let x=files[+el.dataset.exifDate].exif;x.value=exifNormalizeInput(el.value);x.selected=exifValidISO(x.value);renderExifReview()});
+  $('exifRows').querySelectorAll('[data-exif-select]').forEach(el=>el.onchange=()=>{files[+el.dataset.exifSelect].exif.selected=el.checked});
+  $('exifRows').querySelectorAll('[data-exif-accept]').forEach(el=>el.onclick=()=>{
+    const idx=+el.dataset.exifAccept,x=files[idx].exif;
+    x.value=exifNormalizeInput(x.value);
+    if(!exifValidISO(x.value)){document.querySelector('[data-exif-error="'+idx+'"]').textContent='请输入有效的日期时间';return;}
+    x.decision='accept';x.selected=false;renderExifReview();
+  });
+  for(const action of ['keep','skip']){
+    $('exifRows').querySelectorAll('[data-exif-'+action+']').forEach(el=>el.onclick=()=>{
+      const idx=Number(el.dataset['exif'+action.charAt(0).toUpperCase()+action.slice(1)]);
+      files[idx].exif.decision=action;files[idx].exif.selected=false;renderExifReview();
+    });
+  }
+}
+$('exifSelectAll').onchange=e=>{
+  for(const it of files){const x=it.exif;if(x&&x.decision==='pending'&&exifValidISO(x.value)&&x.status!=='unknown')x.selected=e.target.checked;}
+  renderExifReview();
+};
+$('exifBatchAccept').onclick=()=>{
+  for(const it of files){const x=it.exif;if(x&&x.decision==='pending'&&x.selected&&exifValidISO(x.value)&&x.status!=='unknown'){x.decision='accept';x.selected=false;}}
+  renderExifReview();
+};
+$('exifBatchKeep').onclick=()=>{
+  for(const it of exifPending()){it.exif.decision='keep';it.exif.selected=false;}
+  renderExifReview();
+};
+$('exifContinue').onclick=()=>{if(!exifPending().length)run();};
+
+/* ---- 上传流程：选择 → 检测/查重 → EXIF 确认 → 传输 → 后台归档 → 结果 ---- */
 function showUploadStage(stage){
-  const active={select:"uploadSelection",duplicate:"Pdup",deleted:"Pdeleted",progress:"Ptx",result:"Pres"}[stage];
-  ["uploadSelection","Pdup","Pdeleted","Ptx","Pres"].forEach(id=>$(id).classList.toggle("hidden",id!==active));
+  const active={select:"uploadSelection",duplicate:"Pdup",exif:"Pexif",deleted:"Pdeleted",progress:"Ptx",result:"Pres"}[stage];
+  ["uploadSelection","Pdup","Pexif","Pdeleted","Ptx","Pres"].forEach(id=>$(id).classList.toggle("hidden",id!==active));
 }
 function enterUpload(){
   releaseAllPickPreviews();$("phase").textContent="";showUploadStage("progress");
@@ -1131,21 +1345,21 @@ $("bPre").onclick=async()=>{
     if(dups.length){
       renderDup(dups);showUploadStage("duplicate");
       $("phase").textContent="发现 "+dups.length+" 张疑似重复，请决定处理方式";
-    } else run();
+    } else enterExifReview();
   }catch(e){ log("预检失败 "+e.message); resetUpload();$("phase").textContent="检测失败："+e.message; }
 };
 function renderDup(dups){const tb=$("dupRows");tb.innerHTML="";for(const it of dups){
   const tr=document.createElement("tr");
   tr.innerHTML="<td>"+esc(it.file.name)+(it.possibly_deleted?'<div class="dim">可能与曾删除的照片相似，上传后会按内容再次确认</div>':"")+"</td><td>"+it.file.size+"</td><td><button class='ghost'>跳过</button> <button>重新上传</button></td>";
   const [bS,bR]=[...tr.cells[2].children];
-  bS.onclick=async()=>{await conf(it,2);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
-  bR.onclick=async()=>{await conf(it,1);tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())run();};
+  bS.onclick=async()=>{if(!await conf(it,2))return;tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())enterExifReview();};
+  bR.onclick=async()=>{if(!await conf(it,1))return;tr.style.opacity=.4;bS.disabled=bR.disabled=true;if(checkDone())enterExifReview();};
   tb.appendChild(tr);}
 }
-$("bSkipAll").onclick=async()=>{for(const it of dupPending()){await conf(it,2);}run();};
-$("bReAll").onclick=async()=>{for(const it of dupPending()){await conf(it,1);}run();};
+$("bSkipAll").onclick=async()=>{for(const it of dupPending()){if(!await conf(it,2))return;}enterExifReview();};
+$("bReAll").onclick=async()=>{for(const it of dupPending()){if(!await conf(it,1))return;}enterExifReview();};
 function dupPending(){return files.filter(i=>i.pre==="POSSIBLE_DUPLICATE"&&!i.conf);}
-async function conf(it,val){ try{ await api("POST","/upload-items/"+it.item_id+"/confirmation",{confirmation:val}); it.conf=val; }catch(e){log("确认失败 "+e.message);} }
+async function conf(it,val){ try{ await api("POST","/upload-items/"+it.item_id+"/confirmation",{confirmation:val}); it.conf=val;$("phase").textContent="";return true; }catch(e){log("确认失败 "+e.message);$("phase").textContent="确认失败："+e.message;return false;} }
 function checkDone(){ return dupPending().length===0; }
 
 async function run(){
@@ -1154,6 +1368,18 @@ async function run(){
   $("txTitle").textContent="上传照片";
   $("pg").max=total; $("pg").value=0; $("txStage").textContent="0 / "+total; $("stT").textContent="";
   for(const it of files){
+    const skipExif = it.exif&&it.exif.decision==='skip';
+    if(skipExif){
+      try{
+        if(it.pre==="POSSIBLE_DUPLICATE"){
+          if(!await conf(it,2))throw Error("暂不上传确认失败，请重新选择后重试");
+        }
+        else await api("POST","/upload-items/"+it.item_id+"/skip",{});
+        skipped++;
+      }catch(e){failed.push({name:it.file.name,msg:e.message});log("跳过失败 "+it.file.name+": "+e.message);}
+      done++;$("pg").value=done;$("txStage").textContent=done+" / "+total;
+      continue;
+    }
     const skip = it.pre==="POSSIBLE_DUPLICATE" && it.conf===2;   // 用户明确跳过
     const needUpload = it.pre!=="POSSIBLE_DUPLICATE" || it.conf===1;
     if(skip){
@@ -1164,6 +1390,7 @@ async function run(){
     if(!needUpload){ continue; }
     $("txCur").textContent="正在上传 "+it.file.name+"（"+fmtSize(it.file.size)+"）";
     const fd=new FormData(); fd.append("file", it.file, it.file.name);
+    if(it.exif&&it.exif.decision==="accept")fd.append("exif_time",it.exif.value);
     fd.append("modified_ms", String(it.file.lastModified));   // 客户端原文件修改时间(毫秒), 无 EXIF 时作 file_mtime
     try{ await api("POST","/upload-items/"+it.item_id+"/file",undefined,fd); }
     catch(e){ failed.push({name:it.file.name, msg:e.message}); log("上传项失败 "+it.file.name+": "+e.message); }
@@ -1209,6 +1436,7 @@ async function deletedReviewChoice(items){
     title.textContent=it.original_filename+" · "+(it.lifecycle_state==="TRASHED"?"仍在回收站":"本地文件已过期清理");
     const keep=document.createElement("button");keep.className="ghost";keep.textContent="保持删除";
     const restore=document.createElement("button");restore.textContent=it.lifecycle_state==="TRASHED"?"恢复照片":"重新导入";
+    if(it.restore_allowed===false){restore.disabled=true;restore.title="原始归档字节已清理，无法安全恢复；请保持删除";}
     const msg=document.createElement("span");msg.className="dim";
     async function act(choice){
       keep.disabled=restore.disabled=true;
@@ -1557,7 +1785,7 @@ async function loadSys(){ try{ const j=await api("GET","/system/status"); const 
     row("处理流程",esc(worker.mode==="threaded-v1-v2"?"自动归档":worker.mode||"—"))+
     row("等待入库处理",num(c.pending_upload)+" 个文件")+
     row("正在处理中",num(c.processing)+" 个文件")+
-    '</dl><p class="system-note"><span aria-hidden="true">ⓘ</span><span>上传的照片会按拍摄日期自动归档，保留原始文件，不压缩、不修改。</span></p></section>'+
+    '</dl><p class="system-note"><span aria-hidden="true">ⓘ</span><span>照片按拍摄日期归档，图像像素不压缩；用户采纳后仅对归档副本补写缺失的 EXIF 日期。</span></p></section>'+
     '<section class="system-card system-photo-data"><h2>照片数据</h2><dl class="system-kv">'+
     row("照片总数（含已清理）",num(c.assets))+
     row("本地已清理",num(c.assets_missing))+

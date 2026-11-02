@@ -407,17 +407,61 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     item_id = item["id"]
     original_filename = item["original_filename"]
     src = incoming_dir / original_filename
+    metadata = conn.execute(
+        "SELECT source_sha256,exif_confirmed_time FROM upload_items WHERE id=?",
+        (item_id,)
+    ).fetchone()
     if not src.exists():
+        # 重复源清理完成、终态提交前中断：只恢复已有且仍可用的 ACTIVE
+        # 归档。未知新资产/已删除身份不能凭空恢复，仍按 FILE_MISSING 失败。
+        source_sha = metadata["source_sha256"]
+        existing = conn.execute(
+            "SELECT id,archive_path FROM photo_assets WHERE lifecycle_state='ACTIVE'"
+            " AND file_missing_at IS NULL AND (sha256=? OR id=("
+            " SELECT asset_id FROM photo_source_hashes WHERE source_sha256=?))",
+            (source_sha, source_sha),
+        ).fetchone() if source_sha else None
+        if existing and (archive_root.parent / existing["archive_path"]).is_file():
+            now = _now_str()
+            with conn:
+                conn.execute(
+                    "UPDATE upload_items SET status='DUPLICATE',asset_id=?,completed_at=?,"
+                    "updated_at=? WHERE id=?", (existing["id"], now, now, item_id))
+                _append_event(conn, item_id, "PROCESSED", "duplicate cleanup recovered")
+            return {"item_id": item_id, "status": "DUPLICATE", "asset_id": existing["id"],
+                    "repaired": False, "archive_path": existing["archive_path"]}
         # incoming 丢失：状态 FAILED 告警（重启恢复任务继续处理）
         _mark_item_failed(conn, item_id, "FILE_MISSING", "incoming file missing")
         return {"item_id": item_id, "status": "FAILED", "error_message": "incoming file missing"}
 
     sha = compute_sha256(src)
-    existing = conn.execute(
-        "SELECT id, date_taken, date_source, current_filename, archive_path,"
-        " exif_json, file_missing_at, lifecycle_state"
-        " FROM photo_assets WHERE sha256=?", (sha,)
-    ).fetchone()
+    source_sha = metadata["source_sha256"] or sha
+    if metadata["source_sha256"] is None:
+        with conn:
+            conn.execute("UPDATE upload_items SET source_sha256=? WHERE id=?",
+                         (source_sha, item_id))
+    fields = ("SELECT id,sha256,date_taken,date_source,current_filename,archive_path,"
+              "exif_json,file_missing_at,lifecycle_state FROM photo_assets")
+    existing = conn.execute(fields+" WHERE sha256=?", (sha,)).fetchone()
+    if existing is None:
+        existing = conn.execute(
+            fields+" WHERE id=(SELECT asset_id FROM photo_source_hashes"
+            " WHERE source_sha256=?)", (source_sha,)
+        ).fetchone()
+    if existing is None and source_sha != sha:
+        existing = conn.execute(fields+" WHERE sha256=?", (source_sha,)).fetchone()
+    # 先检查未修改的字节身份，避免改变 SHA 后绕开重复与回收站规则。
+    if existing is None and metadata["exif_confirmed_time"]:
+        from .exif_time import ExifTimeError, make_updated_copy
+        try:
+            edited = make_updated_copy(src, item_id, metadata["exif_confirmed_time"])
+            if edited != src:
+                edited.replace(src)
+            sha = compute_sha256(src)
+        except (ExifTimeError, OSError, ValueError) as exc:
+            _mark_item_failed(conn, item_id, "EXIF_WRITE_FAILED", str(exc))
+            return {"item_id": item_id, "status": "FAILED", "error_message": str(exc)}
+        existing = conn.execute(fields+" WHERE sha256=?", (sha,)).fetchone()
 
     if existing is not None and existing["lifecycle_state"] in ("TRASHED", "PURGED"):
         # 独立隔离相同文件名的不同上传，等待人工确认；不进入 NAS 同步目录。
@@ -440,30 +484,42 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     if existing is not None:
         repaired = False
         event_msg = "duplicate content"
+        bytes_match = (sha == existing["sha256"])
+        if not bytes_match and existing["file_missing_at"]:
+            _mark_item_failed(conn, item_id, "SOURCE_ALIAS_RESTORE_UNSAFE",
+                              "cannot restore archived bytes from altered source")
+            return {"item_id": item_id, "status": "FAILED",
+                    "error_message": "archived bytes unavailable"}
         if existing["file_missing_at"]:
-            # 本地文件已被删(Cleanup/外部)：重传=复活本地副本（asset id 不变）
             repaired = _resurrect_missing_asset(conn, cfg, archive_root, existing, src)
             if repaired:
                 event_msg = "duplicate restored: missing file resurrected"
-        else:
-            # 内容重复：无新资产；但允许“用本次重传的元数据修正旧资产错误日期/归档位置”
+        elif bytes_match and metadata["exif_confirmed_time"] is None:
             repaired = _maybe_reanchor_duplicate(conn, cfg, archive_root, existing, src)
             if repaired:
                 event_msg = "duplicate repaired: date/archive re-anchored"
+        else:
+            event_msg = "duplicate original source; proposed EXIF not applied"
+        # 在最后一次共享路径操作结束前保持 UPLOADED，claim 仍会阻断同名
+        # 发布。终态提交之后不能再 unlink(src)，否则会误删后来上传的文件。
+        try:
+            src.unlink(missing_ok=True)
+        except OSError as exc:
+            _FALLBACK_LOG.warning(
+                "duplicate source cleanup failed item_id=%s path=%s: %s",
+                item_id, src, exc, exc_info=True,
+            )
         with conn:
+            if source_sha != existing["sha256"] and sha == existing["sha256"]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO photo_source_hashes(source_sha256,asset_id,created_at)"
+                    " VALUES (?,?,?)", (source_sha, existing["id"], _now_str()))
             conn.execute(
                 "UPDATE upload_items SET status='DUPLICATE', asset_id=?, completed_at=?,"
                 " updated_at=? WHERE id=?",
                 (existing["id"], _now_str(), _now_str(), item_id),
             )
             _append_event(conn, item_id, "PROCESSED", event_msg)
-        try:
-            src.unlink()
-        except OSError as exc:
-            _FALLBACK_LOG.warning(
-                "duplicate source cleanup failed item_id=%s path=%s: %s",
-                item_id, src, exc, exc_info=True,
-            )
         return {"item_id": item_id, "status": "DUPLICATE", "asset_id": existing["id"],
                 "repaired": repaired, "archive_path": existing["archive_path"]}
 
@@ -501,6 +557,10 @@ def process_once(conn, cfg, incoming_dir: Path, archive_root: Path,
     )
     asset_id = cur.lastrowid
     with conn:
+        if source_sha != sha:
+            conn.execute(
+                "INSERT OR IGNORE INTO photo_source_hashes(source_sha256,asset_id,created_at)"
+                " VALUES (?,?,?)", (source_sha, asset_id, now))
         conn.execute(
             "UPDATE upload_items SET status='COMPLETED', asset_id=?, completed_at=?,"
             " updated_at=? WHERE id=?",

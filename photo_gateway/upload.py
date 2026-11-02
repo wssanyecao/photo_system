@@ -40,7 +40,7 @@ def gate_upload_allowed(item_row) -> None:
     """依据 §30 判断该 item 是否允许上传，否则抛 PgApiError。"""
     pre = item_row["precheck_status"]
     conf = item_row["user_confirmation"]
-    if pre in _UPLOAD_ALLOW_PRECHECK:
+    if pre in _UPLOAD_ALLOW_PRECHECK and conf == 0:
         return
     if pre in _UPLOAD_ALLOW_DUP_CONFIRM and conf == 1:
         return
@@ -68,7 +68,8 @@ def disk_allows_write(target: Path, stop_percent: int) -> bool:
 
 async def save_item_file(target_incoming: Path, incoming: str, upload_stream,
                          expected_size: int, stop_percent: int = 95,
-                         client_mtime_ms: int | None = None) -> Path:
+                         client_mtime_ms: int | None = None,
+                         private_tmp: Path | None = None) -> Path:
     """把上传流写到 incoming/<fn>.tmp 并 rename 到 incoming/<fn>。
 
     target_incoming 为解析好的 incoming 目录(绝对)，incoming 为配置文件名字段。
@@ -86,7 +87,11 @@ async def save_item_file(target_incoming: Path, incoming: str, upload_stream,
     if not disk_allows_write(base, stop_percent):
         raise PgApiError("STORAGE_ERROR", "insufficient storage", 507)
 
-    tmp_path = base / f"{filename}.tmp"
+    # API 的并发上传使用带随机 token 的私有 staging；旧版直接调用
+    # 默认仍保留 .tmp→rename 契约，用于既有 V1 测试/内部调用。
+    tmp_path = private_tmp if private_tmp is not None else base / f"{filename}.tmp"
+    if tmp_path.parent != base:
+        raise PgApiError("UNSAFE_PATH", "staging must stay in incoming directory", 409)
     final_path = base / filename
 
     # 未完成可能遗留 .tmp，直接覆盖（无断点续传，靠重传解决，§32）
@@ -110,9 +115,12 @@ async def save_item_file(target_incoming: Path, incoming: str, upload_stream,
             400,
         )
 
-    # 完成后改名为正式 incoming 文件（§31）
-    tmp_path.replace(final_path)
-    # 客户端 mtime：仅设置正式文件(非 .tmp)，时间由客户端原文件修改时间决定。
+    # 原有 V1 调用在此完成 .tmp→rename。受 token 保护的 API 上传先写入
+    # 私有临时文件，仅持有有效 token 时才会发布并打开 Worker 状态。
+    if private_tmp is None:
+        tmp_path.replace(final_path)
+    result_path = tmp_path if private_tmp is not None else final_path
+    # 客户端 mtime 在私有 stage 上先设置，publish 时随原子 rename 保留。
     # 合法性校验：正数、不早于 1990-01-01(防御乱值)、不晚于“未来 7 天”（容忍时钟偏差）。
     # 不合法则忽略（保留服务器时间），保证上传不因异常时间被阻塞。
     if client_mtime_ms is not None:
@@ -122,8 +130,8 @@ async def save_item_file(target_incoming: Path, incoming: str, upload_stream,
         max_ms = now_ms + 7 * 86400 * 1000
         if min_ms <= client_mtime_ms <= max_ms:
             sec = client_mtime_ms / 1000.0
-            os.utime(final_path, (sec, sec))
-    return final_path
+            os.utime(result_path, (sec, sec))
+    return result_path
 
 
 def mark_upload_complete(conn: sqlite3.Connection, item_id: int) -> None:

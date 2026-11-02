@@ -129,3 +129,8 @@ python -m pytest tests -q
 ## 许可证
 
 [MIT License](LICENSE)
+
+
+### 上传前 EXIF 时间确认（P0）
+
+上传预检和重复确认后，会检查选中 JPEG/JPG 的 EXIF 时间。页面只有「待处理」和「已处理」两个分类：部分缺失、完全缺失、无法读取都需确认；已有有效时间或从文件名识别到的候选值可以人工修改并批量采纳。采纳只补服务端新归档副本的缺失日期字段，客户端原文件不变。当前 HEIC/HEIF 等格式浏览器端不自动解析，显示原因并允许原样上传。该功能需要 Docker 镜像内 ExifTool。详细约束参见 [EXIF 上传确认设计](docs/design/exif-upload-review.md)。

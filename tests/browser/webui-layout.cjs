@@ -23,15 +23,23 @@ const server=http.createServer((req,res)=>{
 (async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;
  const browser=await chromium.launch({headless:true,...(process.env.PHOTO_WEBUI_CHROMIUM?{executablePath:process.env.PHOTO_WEBUI_CHROMIUM}:{})});const page=await browser.newPage({viewport:{width:1487,height:960}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- let uploadScenario="success";
+ let uploadScenario="success", uploadedExifTimes=[];
  await page.route(/\/api\/v1\/upload-(sessions|items)(\/|$)/,async route=>{
   const req=route.request(),u=new URL(req.url());if(u.pathname.endsWith('/recent'))return route.continue();
   let data,status=200;
   if(req.method()==='POST'&&u.pathname.endsWith('/upload-sessions'))data={session:{id:'demo-session'}};
-  else if(u.pathname.endsWith('/precheck'))data={items:[{item_id:1,precheck_status:uploadScenario==='duplicate'?'POSSIBLE_DUPLICATE':'NO_MATCH'}]};
-  else if(u.pathname.endsWith('/confirmation'))data={};
+  else if(u.pathname.endsWith('/precheck'))data={items:[{item_id:1,precheck_status:['duplicate','cancel-failure'].includes(uploadScenario)?'POSSIBLE_DUPLICATE':'NO_MATCH'}]};
+  else if(u.pathname.endsWith('/confirmation')){
+   if(uploadScenario==='cancel-failure'&&JSON.parse(req.postData()).confirmation===2)status=503;
+   data={};
+  }
   else if(u.pathname.endsWith('/deleted-reviews'))data={items:[]};
-  else if(u.pathname.endsWith('/file')){if(uploadScenario==='failure')status=503;data={};}
+  else if(u.pathname.endsWith('/file')){
+   const body=req.postData()||'';
+   const match=body.match(/name="exif_time"\r?\n\r?\n([^\r\n]+)/);
+   if(match)uploadedExifTimes.push(match[1]);
+   if(uploadScenario==='failure')status=503;data={};
+  }
   else data={session:{id:'demo-session',status:'COMPLETED',total_files:1,uploaded_files:uploadScenario==='duplicate'?0:1,duplicate_files:0,skipped_files:uploadScenario==='duplicate'?1:0,failed_files:0}};
   await route.fulfill({status,contentType:'application/json',body:JSON.stringify(status===200?{success:true,data}:{success:false,error:{code:'TEST_UNAVAILABLE',message:'合成网络故障'}})});
  });
@@ -56,6 +64,14 @@ const server=http.createServer((req,res)=>{
   if(scenario==='duplicate'){
    await page.waitForSelector('#Pdup:not(.hidden)');assert.equal(await page.locator('.upload-main #Pdup').count(),1);assert.equal(await page.locator('#picker').isVisible(),false);await page.screenshot({path:evidence+'/upload-duplicates.png',fullPage:true});await page.locator('#bSkipAll').click();
   }
+  await page.waitForSelector('#Pexif:not(.hidden)');
+  assert.equal(await page.locator('#exifTabs .exif-tab').count(),2);
+  if(scenario!=='duplicate'){
+    assert.match(await page.locator('#exifTabs').innerText(),/待处理 1/);
+    await page.locator('#exifBatchKeep').click();
+    assert.match(await page.locator('#exifTabs').innerText(),/待处理 0/);
+  }
+  await page.locator('#exifContinue').click();
   if(scenario!=='failure'){
    await page.waitForFunction(()=>document.querySelector('#txTitle').textContent==='等待后台归档');assert.equal(await page.locator('.upload-main #Ptx').count(),1);assert.equal(await page.locator('#picker').isVisible(),false);await aligned();await page.screenshot({path:evidence+'/upload-processing.png',fullPage:true});
   }
@@ -63,6 +79,65 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.locator('#failList').isVisible(),scenario==='failure');await aligned();await page.screenshot({path:evidence+'/upload-report-'+scenario+'.png',fullPage:true});
   await page.locator('#bMore').click();assert.equal(await page.locator('#picker').isVisible(),true);assert.equal(await page.locator('#Pres').isVisible(),false);
  }
+ // EXIF time review: confirm filename suggestion and move the same photo between two tabs.
+ uploadScenario='success';
+ await page.locator('#files').setInputFiles({name:'微信图片_20260304112233_演示.jpg',
+   mimeType:'image/jpeg',buffer:Buffer.from([0xff,0xd8,0xff,0xd9])});
+ await page.locator('#bPre').click();
+ await page.waitForSelector('#Pexif:not(.hidden)');
+ assert.match(await page.locator('#exifTabs').innerText(),/待处理 1/);
+ assert.match(await page.locator('#exifRows').innerText(),/DateTimeOriginal、CreateDate、ModifyDate 均缺失/);
+ assert.equal(await page.locator('[data-exif-date]').inputValue(),'2026-03-04T11:22:33');
+ await page.locator('[data-exif-accept]').click();
+ assert.match(await page.locator('#exifTabs').innerText(),/待处理 0/);
+ assert.match(await page.locator('#exifTabs').innerText(),/已处理 1/);
+ await page.locator('[data-exif-tab="processed"]').click();
+ assert.match(await page.locator('#exifRows').innerText(),/已采纳时间/);
+ await page.locator('[data-exif-reopen]').click();
+ assert.match(await page.locator('#exifTabs').innerText(),/待处理 1/);
+ await page.locator('[data-exif-accept]').click();
+ assert.match(await page.locator('#exifTabs').innerText(),/已处理 1/);
+ await page.locator('[data-exif-tab="pending"]').click();
+ assert.equal(await page.locator('#exifRows .exif-item').count(),0);
+ await page.locator('#exifContinue').click();
+ await page.waitForSelector('#Pres:not(.hidden)');
+ await page.locator('#bMore').click();
+ // R3: Native datetime-local drops :00 seconds; acceptance must normalize it.
+ for(const iso of ['2026-03-04T11:22:00','2026-03-04T00:00:00','2026-03-04T11:22:09']){
+  await page.locator('#files').setInputFiles({name:'no-time-photo.jpg',mimeType:'image/jpeg',
+    buffer:Buffer.from([0xff,0xd8,0xff,0xd9])});
+  await page.locator('#bPre').click();
+  await page.waitForSelector('#Pexif:not(.hidden)');
+  const normalized=await page.locator('[data-exif-date]').evaluate((el,value)=>{
+    el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));
+    return el.value;
+  },iso);
+  if(iso.endsWith(':00'))assert.equal(normalized,iso.slice(0,-3));
+  assert.equal(await page.evaluate(()=>files[0].exif.value),iso);
+  await page.locator('[data-exif-accept]').click();
+  assert.match(await page.locator('#exifTabs').innerText(),/待处理 0/);
+  await page.locator('#exifContinue').click();
+  await page.waitForSelector('#Pres:not(.hidden)');
+  assert.equal(uploadedExifTimes.at(-1),iso);
+  await page.locator('#bMore').click();
+ }
+ assert.equal(await page.evaluate(()=>exifValidISO('2026-02-30T11:22:00')),false);
+ assert.equal(await page.evaluate(()=>exifValidISO('2026-03-04T25:00:00')),false);
+ // Failed EXIF cancellation must become a visible failure, never a successful skip.
+ uploadScenario='cancel-failure';
+ await page.locator('#files').setInputFiles({name:'pending-time.heic',mimeType:'image/heic',buffer:Buffer.from('synthetic-heic')});
+ await page.locator('#bPre').click();
+ await page.waitForSelector('#Pdup:not(.hidden)');
+ await page.locator('#bReAll').click();
+ await page.waitForSelector('#Pexif:not(.hidden)');
+ await page.locator('[data-exif-skip]').click();
+ await page.locator('#exifContinue').click();
+ await page.waitForSelector('#Pres:not(.hidden)');
+ assert.equal(await page.locator('#failList').isVisible(),true);
+ assert.match(await page.locator('#failList').innerText(),/暂不上传确认失败/);
+ assert.equal(await page.locator('#resH').innerText(),'上传失败');
+ await page.locator('#bMore').click();
+ uploadScenario='success';
  // Leave a long local list for the later mobile regression.
  await page.locator('#files').setInputFiles(Array.from({length:24},(_,i)=>({name:`mobile-${i}.png`,mimeType:'image/png',buffer:png})));
  await page.locator('nav [data-v="photos"]').click();await page.waitForSelector('#photoInfo .info-list');assert.equal(await page.locator('#photoInfo img,#photoInfo video').count(),0);

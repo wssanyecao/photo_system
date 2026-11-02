@@ -19,7 +19,7 @@ RUN sed -i \
       -e "s|http://security.debian.org/debian-security|${DEBIAN_MIRROR}/debian-security|g" \
       /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client rsync tzdata \
+    && apt-get install -y --no-install-recommends openssh-client rsync tzdata libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${APP_GID}" photo-gateway \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home photo-gateway \

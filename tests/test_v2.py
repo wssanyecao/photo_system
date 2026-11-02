@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from photo_gateway.db import init_db, migrate
+from photo_gateway.db import SCHEMA_SCRIPTS, init_db, migrate
 from photo_gateway.v2 import (
     MS_ABNORMAL,
     MS_NORMAL,
@@ -42,7 +42,7 @@ def test_migration_v2_creates_tables(conn):
 
 def test_migrate_idempotent_v2(conn):
     m = migrate(conn)
-    assert m == 4   # V1/V2/soft-missing/回收站（幂等）
+    assert m == SCHEMA_SCRIPTS[-1][0]
 
 
 def _mk_months(root, months):

@@ -316,7 +316,7 @@ def decide_deleted_upload(conn, cfg, item_id, choice):
     """内容哈希已经验证匹配；由 API 加同一把归档锁决定是否恢复。"""
     row = conn.execute(
         "SELECT ui.id, ui.session_id, ui.original_filename, ui.asset_id,"
-        " ui.status, pa.lifecycle_state FROM upload_items ui"
+        " ui.status,ui.source_sha256,pa.lifecycle_state FROM upload_items ui"
         " JOIN photo_assets pa ON pa.id=ui.asset_id WHERE ui.id=?", (item_id,)
     ).fetchone()
     if not row or row["status"] != "REVIEW_REQUIRED" or row["lifecycle_state"] not in ("TRASHED","PURGED"):
@@ -329,8 +329,19 @@ def decide_deleted_upload(conn, cfg, item_id, choice):
     if not incoming.is_file():
         raise PgApiError("FILE_MISSING", "pending upload file missing", 409)
     from .worker import compute_sha256
-    if compute_sha256(incoming) != asset["sha256"]:
+    incoming_sha = compute_sha256(incoming)
+    bytes_match = incoming_sha == asset["sha256"]
+    source_alias = (row["source_sha256"] == incoming_sha
+                    and conn.execute(
+                        "SELECT 1 FROM photo_source_hashes WHERE source_sha256=? AND asset_id=?",
+                        (incoming_sha, row["asset_id"])
+                    ).fetchone() is not None)
+    if not bytes_match and not source_alias:
         raise PgApiError("HASH_MISMATCH", "pending upload content changed", 409)
+    if choice == "restore" and row["lifecycle_state"] == "PURGED" and not bytes_match:
+        # 归档字节已经被永久清理；raw 源文件与归档不同，禁止冒用旧 SHA 恢复。
+        raise PgApiError("ORIGINAL_BYTES_UNAVAILABLE",
+                         "metadata-edited archive unavailable; cannot safely restore", 409)
     if choice == "restore":
         if row["lifecycle_state"] == "TRASHED":
             restore(conn, cfg, row["asset_id"])

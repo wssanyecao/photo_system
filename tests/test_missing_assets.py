@@ -90,7 +90,7 @@ def test_migration_adds_file_missing_at_column(tmp_path):
     conn.commit()
     conn.close()
     c = init_db(p)
-    assert c.execute("SELECT MAX(version) v FROM schema_version").fetchone()["v"] == 4
+    assert c.execute("SELECT MAX(version) v FROM schema_version").fetchone()["v"] == d.SCHEMA_SCRIPTS[-1][0]
     cols = [r[1] for r in c.execute("PRAGMA table_info(photo_assets)")]
     assert "file_missing_at" in cols
     c.close()

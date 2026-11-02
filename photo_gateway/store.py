@@ -143,7 +143,7 @@ def finalize_session(conn, session_id: str) -> None:
     _recount(conn, session_id)
     busy = conn.execute(
         "SELECT COUNT(*) FROM upload_items WHERE session_id=? AND"
-        " status IN ('UPLOADING','UPLOADED','PROCESSING','REVIEW_REQUIRED')", (session_id,)
+        " status IN ('UPLOADING','RECEIVING','UPLOADED','PROCESSING','REVIEW_REQUIRED')", (session_id,)
     ).fetchone()[0]
     if busy:
         return
@@ -258,7 +258,7 @@ def possible_duplicates(conn, session_id: str) -> list[sqlite3.Row]:
 
 
 def set_item_confirmation(conn, item_id: int, confirmation: int) -> dict | None:
-    """设置 user_confirmation (1=重新上传 → 使其上传；2=跳过)。仅允许 POSSIBLE_DUPLICATE/未定。
+    """确认疑似重复项；尚未 claim 的 UPLOADING/1 允许从 EXIF 页撤销。
 
     返回状态 dict 或 None(找不到/不允许)。
     """
@@ -280,12 +280,42 @@ def set_item_confirmation(conn, item_id: int, confirmation: int) -> dict | None:
         new_status = "PRECHECK"          # 明确跳过：停在 precheck，不算已上传
     else:
         raise ValueError("confirmation 必须为 1 或 2")
-    conn.execute(
-        "UPDATE upload_items SET user_confirmation=?, status=?, updated_at=? WHERE id=?",
-        (confirmation, new_status, now, item_id),
+    cur = conn.execute(
+        "UPDATE upload_items SET user_confirmation=?, status=?, updated_at=?"
+        " WHERE id=? AND precheck_status='POSSIBLE_DUPLICATE' AND upload_token IS NULL"
+        " AND ((status='PRECHECK' AND user_confirmation=0)"
+        " OR (?=2 AND status='UPLOADING' AND user_confirmation=1))",
+        (confirmation, new_status, now, item_id, confirmation),
     )
+    if cur.rowcount != 1:
+        conn.rollback()
+        return None
     conn.commit()
     _recount(conn, session_id)
     finalize_session(conn, session_id)  # 全部跳过/全部处理完后收尾终态(§ fix: 不卡 UPLOADING)
     return {"item_id": item_id, "user_confirmation": confirmation,
             "upload_required": new_status == "UPLOADING"}
+
+
+
+def skip_unmatched_item(conn, item_id: int) -> dict | None:
+    """允许 NO_MATCH 用户明确取消上传；兼容原有重复预检状态机。"""
+    row = conn.execute(
+        "SELECT id, session_id, status, precheck_status, user_confirmation "
+        "FROM upload_items WHERE id=?", (item_id,)
+    ).fetchone()
+    if (row is None or row["status"] != "PRECHECK"
+            or row["precheck_status"] != "NO_MATCH"
+            or row["user_confirmation"] != 0):
+        return None
+    cur = conn.execute(
+        "UPDATE upload_items SET user_confirmation=2,updated_at=?"
+        " WHERE id=? AND status='PRECHECK' AND precheck_status='NO_MATCH'"
+        " AND user_confirmation=0",
+        (_now(), item_id))
+    if cur.rowcount != 1:
+        conn.rollback()
+        return None
+    conn.commit()
+    finalize_session(conn, row["session_id"])
+    return {"item_id": item_id, "upload_required": False}
